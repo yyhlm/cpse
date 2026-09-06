@@ -1,0 +1,1 @@
+Resolve the covered identities into complete polymer records from this PDF.

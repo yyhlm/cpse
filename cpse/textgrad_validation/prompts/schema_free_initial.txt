@@ -1,0 +1,1 @@
+Extract all scientifically relevant facts from the attached paper into one comprehensive JSON object. Preserve sample identities, process steps, quantities, properties, units, test conditions, characterization results, and their relationships. Use clear descriptive keys. Return JSON only.

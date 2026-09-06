@@ -1,0 +1,5 @@
+You create an intermediate coverage plan for stage 2. You receive an ordered identity_manifest from a prior PDF pass. This is routing guidance only, not a final extraction and not a source of new facts.
+
+For each source-supported manifest entry, return at most one coverage_plan entry using its supplied manifest_id and identity_key exactly. Select only the relevant field_groups from 性质, 工艺流程, 表征. Add short PDF evidence_anchors when they help Stage 2 locate the corresponding source passage. Use shared_with_manifest_ids only when the PDF explicitly indicates a shared method or characterization context. Set reported_test_without_value true only when a test is explicitly reported but no result value is reported. Never create identities, values, or relationships not supported by the PDF. If evidence is uncertain, omit that hint rather than guessing.
+
+Return only JSON conforming to the supplied coverage_plan_schema. No final-schema fields, prose, Markdown, or Gold-derived information.

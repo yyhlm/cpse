@@ -1,0 +1,97 @@
+root# Copy this file to the repo root as config.yaml, then fill in model names and
+# keys (via .env). Never commit real keys.
+paths:
+  data_dir: cpse/data                     # PDF / JSON 输入目录(必须 20 对)
+  schema_path: cpse/schema.json           # 仓库字段式 schema DSL
+  output_root: cpse/results               # 运行产物输出根目录
+  prompt_dir: cpse/textgrad_validation/prompts  # 各角色提示词所在目录
+
+# Keys are read from the repository-root .env and referenced here by name.
+# Copy .env.example to the repository root; never put raw keys in this file.
+roles:
+  extractor:                             # PDF 抽取模型
+    model: your-pdf-capable-model        # 模型 ID,如 gpt-4o
+    base_url: https://api.openai.com/v1  # API 端点地址
+    api_key_env: TEXTGRAD_EXTRACTOR_API_KEY  # 读取密钥的环境变量名(在 .env 中设置)
+    temperature: 0                       # 采样温度(0-1)。抽取场景推荐 0
+    max_output_tokens: 16384             # 单次请求最大输出 token 数
+    timeout_seconds: 300                 # 单次 API 请求超时时间(秒)
+    max_retries: 2                       # 网络错误/限流时的重试次数
+    # This gateway accepts inline Base64 input_file but not Responses instructions.
+    # Set to true only if your endpoint supports Responses API `instructions`.
+    use_instructions: false
+    # Optional proxy URL, for example http://127.0.0.1:7890. Omit or set null for direct connection.
+    proxy: null
+    # API 协议:"responses"(默认,OpenAI Responses API,PDF 直接作为 input_file 文件输入,
+    # 要求网关支持 /v1/responses 与 PDF 文件)或 "chat_completions_pdf_images"
+    # (OpenAI Chat Completions,PDF 逐页渲染成 PNG 图片输入,适用于只支持 /v1/chat/completions
+    # 且模型只收 text+image 的网关,如 SenseNova)
+    # 或 "gemini_generate_content"(Google Gemini 原生 generateContent,PDF 字节 inline_data 直传,
+    # base_url 通常为 https://generativelanguage.googleapis.com/v1beta,国内需配 proxy)。
+    # 属于运行指纹的一部分,切换需新 run-id。
+    api_protocol: responses
+    # reasoning_effort: "none"  # 关闭模型推理(仅 chat_completions_pdf_images 通道生效；
+                                # SenseNova 实测 reasoning_effort=none 生效，避免推理烧光输出预算致 content 为空)
+
+  judge:                                 # 金标裁判(只读预测/Gold/schema,不看 PDF)
+    model: your-judge-model
+    base_url: https://api.openai.com/v1
+    api_key_env: TEXTGRAD_JUDGE_API_KEY
+    temperature: 0
+    max_output_tokens: 8192
+    timeout_seconds: 180
+    max_retries: 2
+    use_instructions: false
+    proxy: null
+
+  gold_audit:                            # 金标 PDF 审计(可选,见 gold_audit.enabled)
+    model: your-pdf-capable-audit-model
+    base_url: https://api.openai.com/v1
+    api_key_env: TEXTGRAD_AUDIT_API_KEY
+    temperature: 0
+    max_output_tokens: 8192
+    timeout_seconds: 300
+    max_retries: 2
+    use_instructions: false
+    proxy: null
+
+# Optional diagnostics. Keep both false for the default smallest experiment.
+evaluation:
+  # true: judge receives PDF + schema + prediction + gold; false: JSON-only judge input
+  include_pdf: false
+  # true: 主裁判额外返回 path_errors(字段路径+错误类别+证据)
+  include_error_locations: false
+
+# 可选：优化模式。
+# - single（默认）：只优化单条抽取提示词（传统 TextGrad 流程）。
+# - alternating_schema_description：每轮联合优化“schema-description 补丁提示词”与“抽取提示词”。
+#   两个提示词先由同一已接受状态的反馈独立反传并一起 step；更新后的 schema 提示词提出
+#   description-only 补丁，再用候选 schema + 更新后的抽取提示词只重抽取/评分一次。
+#   接受为无门槛：补丁合法且三篇训练文档均有有效评分即接受并整体推进，否则两个提示词与
+#   schema 一起回滚；schema 补丁模型复用 judge 角色。
+optimization_mode: single
+
+cache:
+  # false：同时关闭 run-local 结果复用与 results/_cache 共享缓存的读写；每篇都会重新调用模型。
+  enabled: true
+
+# 交替模式专用（optimization_mode: alternating_schema_description 时生效）。
+# schema 补丁提示词从 prompt_dir 读取 schema_description_system.txt（不可变协议）与
+# schema_description_initial.txt（初始可优化提示词）。
+schema_patch:
+  policy_version: "1"          # 补丁安全策略版本；变更会使 manifest 指纹不一致
+
+gold_audit:
+  # true: 全部主评分+提示词冻结完成后,对每篇文档审计 PDF 是否支持 Gold
+  # 审计结果只写 gold_audit/ 目录,不改 Gold、不改分、不触发再优化
+  enabled: false
+
+max_iterations: 3              # 唯一可在同 run-id 续跑时变更的字段；上调续跑新轮次、下调重算 best 并重跑优化盲测臂
+max_parallel_calls: 3          # 同一候选内并行的独立文档数
+train_count: 3                 # 激活训练文档数：1/2/3；1/2-shot 时必须提供固定3篇 train_ids 池
+# train_ids: 可选，锁定训练集为指定的 3 篇文档 stem。为 null 时按复杂度分层抽样（1 高/1 中/1 低复杂度）。
+# 设为 null 时算法自动选择；设为具体列表时锁定，便于跨实验复现同一训练集。
+# 例如: train_ids: ["0a884dc34158d42939bde345502041cf", "0b0738ea2c2925958ccbd338c8275c22", "0e668e21c8e210e3e54f752c944f3b2b"]
+train_ids: null
+split_algorithm_version: structural-v1   # 划分算法版本(修改时会导致 manifest 指纹不一致)
+request_format_version: responses-pdf-v1 # 请求格式版本(修改时会导致缓存键不一致)

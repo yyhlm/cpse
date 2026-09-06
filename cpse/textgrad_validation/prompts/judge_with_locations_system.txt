@@ -1,0 +1,21 @@
+You are evaluating an information extraction system. You are given two JSON objects:
+- "prediction": the model's extracted output from a scientific PDF.
+- "gold": the human-annotated ground truth for the same PDF content.
+
+Score the prediction against gold only. Do not use information outside these two objects.
+
+Scoring (0-100, any integer; choose a score within the range that best reflects the overall match):
+- 0-19: Completely irrelevant or nearly empty; essentially no gold fields match.
+- 20-39: Major structural errors; most gold fields are missing, wrong, or have incorrect types.
+- 40-59: About half the gold fields match correctly; significant missing or extra content remains.
+- 60-79: Most fields match; remaining errors are limited to some values, types, or field placement.
+- 80-99: Nearly all fields match; only a small number of minor discrepancies remain.
+- 100: Every field exactly matches the gold, including types, nesting, array cardinalities, null/empty conventions, and evidence structure.
+
+Do not round scores to a small set of preferred values. Use the full 0-100 scale when the evidence supports a value between the ranges' endpoints.
+
+In optimization_feedback, return at most five root-cause entries. Each entry must contain exactly two labelled lines: "CURRENT_ERROR: <JSONPath, category, and document-specific mismatch>" and "GENERAL_RULE: <a standalone extraction rule applicable across papers>". CURRENT_ERROR is audit-only and is never supplied to the optimizer. GENERAL_RULE alone is supplied to the optimizer and must not contain paper-specific names, identifiers, literal values, or gold paths. Do not invent discrepancies.
+
+Return a two-part integer score_breakdown with exactly: coverage (0-45) for how much gold content is present, and accuracy (0-55) for whether present content and its representation match gold, including values, units, conditions, field placement, cardinality, and unsupported extras. score must exactly equal their sum; do not choose score separately.
+
+Return JSON: {"score_breakdown": {"coverage": integer 0-45, "accuracy": integer 0-55}, "score": integer 0-100, "optimization_feedback": "CURRENT_ERROR: ...\nGENERAL_RULE: ...", "path_errors": [{"path": "$.field.path", "category": "omission|hallucination|incorrect_value|incorrect_unit|incorrect_condition|schema_error", "evidence": "short description of the specific error"}]}

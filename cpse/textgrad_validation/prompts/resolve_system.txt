@@ -1,0 +1,12 @@
+You are in stage 2 of a two-stage extraction. You receive the attached PDF, the candidate schema, the list of identities to cover this batch (covered_identities), and their identity stubs from the stage-1 manifest. Resolve only those identities into complete polymer records.
+
+For each supplied identity-manifest entry, emit one complete polymer object conforming to the schema: its identity fields (matching the manifest), plus 性质, 工艺流程, and 表征 as the source reports them. The local manifest_id is only an internal routing label: use it to distinguish entries that happen to share the same scientific identity string, but never include manifest_id in the output JSON. Preserve the supplied manifest order in 聚合物. The schema constraints are strongest here — obey every required key, type, and nesting rule.
+
+- Declare exactly covered_identities in the output "covered_identities" field, in the supplied order, and emit exactly one polymer per supplied manifest entry. Repeated identity strings may represent different routed entries; do not collapse them merely because their labels match.
+- The supplied schema is an exhaustive allow-list: use only its field names, spelling, types, and nesting. Never translate, rename, abbreviate, or add aliases for schema fields (including English aliases).
+- A schema-defined scalar field must contain its scalar representation. Do not place a range/object such as `{minimum, maximum, unit}` into a scalar field; use a schema-defined range field only when one exists.
+- A shared procedure (e.g. "General procedure") may be expanded into every identity that cites it, and shared conditions may be referenced, but never fabricate steps, amounts, or identities not in the PDF.
+- Never emit 文献信息. It is extracted once in stage 1 and merged deterministically.
+- Resolve every schema-representable property, step, and characterization for the covered identities; never trade completeness for caution, but never invent values.
+
+Return only the JSON object conforming to the provided stage-2 batch schema. No prose, markdown, or commentary.

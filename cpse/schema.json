@@ -1,0 +1,3147 @@
+{
+  "文献信息": {
+    "type": "object",
+    "required": true,
+    "description": "抽取论文明确给出的基本书目信息。",
+    "properties": {
+      "唯一文献标识": {
+        "type": "string",
+        "required": true,
+        "description": "填写完整 DOI 标识，并保留“doi:”前缀，例如 doi:10.xxxx/xxxxx；不要只填写裸 DOI。"
+      },
+      "论文标题": {
+        "type": "string",
+        "required": true,
+        "description": "填写论文完整英文标题。"
+      },
+      "作者列表": {
+        "type": "array",
+        "required": true,
+        "description": "按照论文署名顺序填写全部作者姓名。",
+        "items": {
+          "type": "string",
+          "required": true,
+          "description": "按照论文署名顺序填写全部作者姓名。"
+        }
+      },
+      "期刊名称": {
+        "type": "string",
+        "required": true,
+        "description": "填写论文发表期刊名称，保持原文形式。"
+      },
+      "年份": {
+        "type": "string",
+        "required": true,
+        "description": "填写论文发表年份。"
+      },
+      "卷号": {
+        "type": "string",
+        "required": true,
+        "description": "填写论文卷号。"
+      },
+      "页码": {
+        "type": "string",
+        "required": true,
+        "description": "填写论文页码范围或文章编号。"
+      },
+      "文档类型": {
+        "type": "string",
+        "required": true,
+        "description": "填写统一的书目文献类型；期刊论文填写 Journal Article，不要把正文中的 Communication、Original Paper 等栏目名称误作样品或方法信息。"
+      },
+      "语言": {
+        "type": "string",
+        "required": true,
+        "description": "填写论文正文语言。"
+      },
+      "关键词": {
+        "type": "string",
+        "required": true,
+        "description": "记录论文关键词原文为一个字符串；保持原词和原顺序，不拆分为数组，也不自行改写或补充。"
+      }
+    },
+    "additionalProperties": false
+  },
+  "聚合物": {
+    "type": "array",
+    "required": true,
+    "description": "为论文中明确区分的每个聚合物、前驱体、低聚物、配方或样品分别建立对象。",
+    "items": {
+      "type": "object",
+      "required": true,
+      "description": "为论文中明确区分的每个聚合物、前驱体、低聚物、配方或样品分别建立对象。",
+      "properties": {
+        "聚合物分类名称": {
+          "type": "string",
+          "required": true,
+          "description": "填写通用聚合物类别名称，例如 polyimide、polyamic acid；不要加入样品编号、具体单体名称或仅适用于单个样品的修饰描述。"
+        },
+        "聚合物分类编码": {
+          "type": "string",
+          "required": true,
+          "description": "填写与聚合物分类名称对应的通用类别缩写，例如 PI、PAA；不要填写 IV、PI-1 等论文样品系列或样品编号。"
+        },
+        "名称": {
+          "type": "string",
+          "required": true,
+          "description": "填写论文用于指代该具体聚合物或样品的名称，保留原文大小写、连字符和编号。"
+        },
+        "身份标识": {
+          "type": "string",
+          "required": true,
+          "description": "填写能够唯一定位该样品的完整身份标识；不要仅填写 IVa、PI-1 等论文中的短样品代号。该字段宜由抽取后的统一后处理生成。"
+        },
+        "样本形态": {
+          "type": "string",
+          "required": true,
+          "description": "只填写样品的物理形态，例如 film、powder、solution、membrane；不要混入颜色、透明度、柔韧性等性质描述。"
+        },
+        "结构特征_L1": {
+          "type": "string",
+          "required": true,
+          "description": "填写聚合物整体架构或状态特征，例如 linear、crosslinked、copolymer、blend、foam、precursor；不要重复聚合物分类名称，也不要写具体单体来源。"
+        },
+        "结构特征_L2": {
+          "type": "string",
+          "required": true,
+          "description": "填写分子化学结构特征，例如 aromatic、heterocyclic、imide-containing、ether-linked、sulfone-containing、fluorinated；不要写合成路线或完整句子。"
+        },
+        "表征": {
+          "type": "object",
+          "required": true,
+          "description": "记录该聚合物样品明确报告的表征信息；只能使用本对象中定义的字段。本对象定义的所有表征方法（红外_FTIR、紫外_UVVis、分子量_GPC_SEC、形貌、热重_TGA、差示扫描量热_DSC、元素分析_CHN 等）都必须是本对象的子对象；每个子对象的字段必须嵌套在各自子对象内，不得提升到聚合物或本对象层级。",
+          "properties": {
+            "红外_FTIR": {
+              "type": "object",
+              "required": true,
+              "description": "固定输出 FTIR 对象；论文未报告时，样品形态为空字符串、峰位_cm-1为空数组。",
+              "properties": {
+                "样品形态": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写进行 FTIR 测试时的样品形态；未报告时为空字符串。"
+                },
+                "峰位_cm-1": {
+                  "type": "array",
+                  "required": true,
+                  "description": "填写 FTIR 特征峰及归属。字段名已指定单位 cm-1，因此每个峰值中不要重复写 cm-1，例如“3260 (N-H and O-H)”。",
+                  "items": {
+                    "type": "string",
+                    "required": true,
+                    "description": "填写一个峰位或峰位范围及其归属，不重复写 cm-1。"
+                  }
+                },
+                "说明": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文作者对该测试或结果的明确说明，不自行解释。"
+                },
+                "仪器": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文明确报告的仪器名称、制造商或型号。"
+                }
+              },
+              "additionalProperties": false
+            },
+            "紫外_UVVis": {
+              "type": "object",
+              "required": true,
+              "description": "固定输出 UV–Vis 对象；论文未报告时，溶剂或基底和 λmax_nm 均为空字符串。",
+              "properties": {
+                "溶剂或基底": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写 UV–Vis 测试所用溶剂、薄膜状态或基底信息；未报告时为空字符串。"
+                },
+                "λmax_nm": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写最大吸收波长。字段名已指定单位 nm，因此只填写数值或多个数值组成的英文字符串，不重复写 nm；未报告时为空字符串。"
+                },
+                "仪器": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文明确报告的 UV–Vis 仪器名称、制造商或型号。"
+                },
+                "测试模式": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文明确报告的 UV–Vis 测试模式，例如 transmission mode。"
+                },
+                "测试波长范围_nm": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写扫描波长范围。字段名已指定单位 nm，因此只填写范围数值，不重复写 nm。"
+                },
+                "浓度_mol_L": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写 UV–Vis 样品浓度的数值字符串。字段名已指定单位 mol/L，因此不要重复写单位。"
+                },
+                "说明": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文作者对 UV–Vis 测试或结果的补充说明；不自行解释。"
+                }
+              },
+              "additionalProperties": false
+            },
+            "分子量_GPC_SEC": {
+              "type": "object",
+              "required": true,
+              "description": "记录 GPC/SEC 分子量测试信息。该模块固定输出；论文未报告时保留全部基础字段并填写空字符串。",
+              "properties": {
+                "流动相": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写 GPC/SEC 使用的流动相。"
+                },
+                "温度": {
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "required": true,
+                  "description": "填写 GPC/SEC 测试温度的数值字符串，不在此字段重复写单位。"
+                },
+                "温度单位": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写 GPC/SEC 测试温度单位，例如 °C；未报告时为空字符串。"
+                },
+                "校准": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写 GPC/SEC 使用的校准标准。"
+                },
+                "Mn_kDa": {
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "required": true,
+                  "description": "填写 Mn 数值。字段名已指定单位 kDa，因此只填写数值字符串，不重复写单位；未报告时为空字符串。"
+                },
+                "Mw_kDa": {
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "required": true,
+                  "description": "填写 Mw 数值。字段名已指定单位 kDa，因此只填写数值字符串，不重复写单位；未报告时为空字符串。"
+                },
+                "PDI": {
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "required": false,
+                  "description": "填写分散系数 PDI 的无量纲数值字符串；未报告时为空字符串。"
+                },
+                "说明": {
+                  "type": "string",
+                  "required": false,
+                  "description": "仅填写论文在 GPC/SEC 模块中明确给出的补充说明；未报告时不输出该字段。"
+                },
+                "Mz_kDa": {
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "required": false,
+                  "description": "填写 Mz 数值。字段名已指定单位 kDa，因此只填写数值字符串，不重复写单位；未报告时为空字符串。"
+                }
+              },
+              "additionalProperties": false
+            },
+            "形貌": {
+              "type": "object",
+              "required": true,
+              "description": "固定输出形貌对象；XRD_WAXS 和显微未报告时均为空字符串。仪器仅在明确报告时填写。",
+              "properties": {
+                "XRD_WAXS": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写 XRD/WAXS 结果或相关说明；未报告时为空字符串。"
+                },
+                "显微": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写 SEM、TEM、AFM 或其他显微结果；未报告时为空字符串。"
+                },
+                "仪器": {
+                  "type": "string",
+                  "required": false,
+                  "description": "仅填写论文在形貌模块中明确记录的 XRD、显微或相关仪器；未报告时不输出该字段。"
+                }
+              },
+              "additionalProperties": false
+            },
+            "热重_TGA": {
+              "type": "object",
+              "required": false,
+              "description": "填写论文在“热重_TGA”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+              "properties": {
+                "样品形态": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写该项测试所用样品形态或制样方式。"
+                },
+                "气氛": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写论文在“气氛”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "升温速率": {
+                  "type": [
+                    "object",
+                    "string"
+                  ],
+                  "required": true,
+                  "description": "填写论文在“升温速率”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                  "properties": {
+                    "单值": {
+                      "type": [
+                        "string",
+                        "number"
+                      ],
+                      "required": true,
+                      "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                    },
+                    "单位": {
+                      "type": "string",
+                      "required": true,
+                      "description": "填写论文原文单位；未报告时为空字符串。"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "关键信息": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文在“关键信息”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "仪器": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文明确报告的仪器名称、制造商或型号。"
+                },
+                "测试温度范围": {
+                  "type": [
+                    "object",
+                    "string"
+                  ],
+                  "required": false,
+                  "description": "填写论文在“测试温度范围”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                  "properties": {
+                    "最大": {
+                      "type": [
+                        "string",
+                        "number"
+                      ],
+                      "required": true,
+                      "description": "填写范围最大值；记录为字符串，未报告时为空字符串。"
+                    },
+                    "最小": {
+                      "type": [
+                        "string",
+                        "number"
+                      ],
+                      "required": true,
+                      "description": "填写范围最小值；记录为字符串，未报告时为空字符串。"
+                    },
+                    "单位": {
+                      "type": "string",
+                      "required": true,
+                      "description": "填写论文原文单位；未报告时为空字符串。"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "说明": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文作者对该测试或结果的明确说明，不自行解释。"
+                }
+              },
+              "additionalProperties": false
+            },
+            "差示扫描量热_DSC": {
+              "type": "object",
+              "required": false,
+              "description": "填写论文在“差示扫描量热_DSC”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+              "properties": {
+                "样品形态": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写该项测试所用样品形态或制样方式。"
+                },
+                "气氛": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文在“气氛”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "升温速率": {
+                  "type": [
+                    "object",
+                    "string"
+                  ],
+                  "required": false,
+                  "description": "填写论文在“升温速率”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                  "properties": {
+                    "单值": {
+                      "type": [
+                        "string",
+                        "number"
+                      ],
+                      "required": true,
+                      "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                    },
+                    "单位": {
+                      "type": "string",
+                      "required": true,
+                      "description": "填写论文原文单位；未报告时为空字符串。"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "关键信息": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文在“关键信息”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "结果": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文在“结果”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "仪器": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文明确报告的仪器名称、制造商或型号。"
+                },
+                "说明": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文作者对该测试或结果的明确说明，不自行解释。"
+                }
+              },
+              "additionalProperties": false
+            },
+            "质谱_MS": {
+              "type": "object",
+              "required": false,
+              "description": "填写论文在“质谱_MS”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+              "properties": {
+                "离子化方式": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写论文在“离子化方式”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "m/z": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写论文在“m/z”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "离子峰": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写论文在“离子峰”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "calculated_for": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写论文在“calculated_for”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "found": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写论文在“found”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                }
+              },
+              "additionalProperties": false
+            },
+            "循环伏安_CV": {
+              "type": "object",
+              "required": false,
+              "description": "填写论文在“循环伏安_CV”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+              "properties": {
+                "参比电极": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文在“参比电极”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "电解液": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文在“电解液”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "电压范围": {
+                  "type": [
+                    "object",
+                    "string"
+                  ],
+                  "required": false,
+                  "description": "填写论文在“电压范围”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                  "properties": {
+                    "最小": {
+                      "type": [
+                        "string",
+                        "number"
+                      ],
+                      "required": true,
+                      "description": "填写范围最小值；记录为字符串，未报告时为空字符串。"
+                    },
+                    "最大": {
+                      "type": [
+                        "string",
+                        "number"
+                      ],
+                      "required": true,
+                      "description": "填写范围最大值；记录为字符串，未报告时为空字符串。"
+                    },
+                    "单位": {
+                      "type": "string",
+                      "required": true,
+                      "description": "填写论文原文单位；未报告时为空字符串。"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "扫描速率": {
+                  "type": [
+                    "object",
+                    "string"
+                  ],
+                  "required": true,
+                  "description": "填写论文在“扫描速率”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                  "properties": {
+                    "最小": {
+                      "type": [
+                        "string",
+                        "number"
+                      ],
+                      "required": false,
+                      "description": "填写范围最小值；记录为字符串，未报告时为空字符串。"
+                    },
+                    "最大": {
+                      "type": [
+                        "string",
+                        "number"
+                      ],
+                      "required": false,
+                      "description": "填写范围最大值；记录为字符串，未报告时为空字符串。"
+                    },
+                    "单位": {
+                      "type": "string",
+                      "required": true,
+                      "description": "填写论文原文单位；未报告时为空字符串。"
+                    },
+                    "单值": {
+                      "type": [
+                        "string",
+                        "number"
+                      ],
+                      "required": false,
+                      "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "氧化还原峰": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文在“氧化还原峰”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "备注": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文明确给出的补充说明。"
+                },
+                "说明": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文作者对该测试或结果的明确说明，不自行解释。"
+                },
+                "仪器": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文明确报告的仪器名称、制造商或型号。"
+                },
+                "工作电极": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文在“工作电极”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "对电极": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文在“对电极”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                }
+              },
+              "additionalProperties": false
+            },
+            "电化学阻抗谱_EIS": {
+              "type": "object",
+              "required": false,
+              "description": "填写论文在“电化学阻抗谱_EIS”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+              "properties": {
+                "等效电路": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文在“等效电路”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "备注": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文明确给出的补充说明。"
+                },
+                "测试条件": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文在该表征项下明确归组的测试条件；不要把其他段落信息自行移入。"
+                },
+                "说明": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文作者对该测试或结果的明确说明，不自行解释。"
+                },
+                "测试频率范围": {
+                  "type": [
+                    "object",
+                    "string"
+                  ],
+                  "required": false,
+                  "description": "填写论文在“测试频率范围”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                  "properties": {
+                    "最小": {
+                      "type": [
+                        "string",
+                        "number"
+                      ],
+                      "required": true,
+                      "description": "填写范围最小值；记录为字符串，未报告时为空字符串。"
+                    },
+                    "最大": {
+                      "type": [
+                        "string",
+                        "number"
+                      ],
+                      "required": true,
+                      "description": "填写范围最大值；记录为字符串，未报告时为空字符串。"
+                    },
+                    "单位": {
+                      "type": "string",
+                      "required": true,
+                      "description": "填写论文原文单位；未报告时为空字符串。"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "交流振幅": {
+                  "type": "object",
+                  "required": false,
+                  "description": "填写论文在“交流振幅”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                  "properties": {
+                    "单值": {
+                      "type": [
+                        "string",
+                        "number"
+                      ],
+                      "required": true,
+                      "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                    },
+                    "单位": {
+                      "type": "string",
+                      "required": true,
+                      "description": "填写论文原文单位；未报告时为空字符串。"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "仪器": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文明确报告的仪器名称、制造商或型号。"
+                }
+              },
+              "additionalProperties": false
+            },
+            "光电子能谱_XPS": {
+              "type": "object",
+              "required": false,
+              "description": "填写论文在“光电子能谱_XPS”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+              "properties": {
+                "测试对象": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文在“测试对象”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "Fe 2p3/2": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文在“Fe 2p3/2”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "Fe 2p1/2": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文在“Fe 2p1/2”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "shake-up satellite": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文在“shake-up satellite”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "结论": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文在“结论”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "参数": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文在“参数”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                }
+              },
+              "additionalProperties": false
+            },
+            "元素分析": {
+              "type": "object",
+              "required": false,
+              "description": "填写论文在“元素分析”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。 Calcd、Found 都是本对象的子字段，必须作为本对象的子键输出，不得提升到表征或聚合物层级。",
+              "properties": {
+                "Calcd": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写论文在“Calcd”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "Found": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写论文在“Found”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                }
+              },
+              "additionalProperties": false
+            },
+            "核磁_1H_NMR": {
+              "type": "object",
+              "required": false,
+              "description": "填写论文在“核磁_1H_NMR”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+              "properties": {
+                "仪器": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文明确报告的仪器名称、制造商或型号。"
+                },
+                "溶剂": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文在“溶剂”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "化学位移_ppm": {
+                  "type": [
+                    "string",
+                    "array"
+                  ],
+                  "required": false,
+                  "description": "填写 1H NMR 化学位移及峰归属。字段名已指定单位 ppm，因此不要在值中重复写 ppm。",
+                  "items": {
+                    "type": "string",
+                    "required": false
+                  }
+                },
+                "说明": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文作者对该测试或结果的明确说明，不自行解释。"
+                },
+                "频率_MHz": {
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "required": false,
+                  "description": "填写 NMR 仪器频率的数值字符串。字段名已指定单位 MHz，因此不要重复写单位。"
+                },
+                "样品预处理": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文在“样品预处理”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "样品": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文在“样品”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "内标": {
+                  "type": "string",
+                  "required": false,
+                  "description": "填写论文在“内标”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                }
+              },
+              "additionalProperties": false
+            },
+            "力学测试_UTM": {
+              "type": "object",
+              "required": false,
+              "description": "填写论文在“力学测试_UTM”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+              "properties": {
+                "仪器": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写论文明确报告的仪器名称、制造商或型号。"
+                },
+                "载荷": {
+                  "type": "object",
+                  "required": true,
+                  "description": "填写论文在“载荷”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                  "properties": {
+                    "单值": {
+                      "type": [
+                        "string",
+                        "number"
+                      ],
+                      "required": true,
+                      "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                    },
+                    "单位": {
+                      "type": "string",
+                      "required": true,
+                      "description": "填写论文原文单位；未报告时为空字符串。"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "拉伸速率": {
+                  "type": "object",
+                  "required": true,
+                  "description": "填写论文在“拉伸速率”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                  "properties": {
+                    "单值": {
+                      "type": [
+                        "string",
+                        "number"
+                      ],
+                      "required": true,
+                      "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                    },
+                    "单位": {
+                      "type": "string",
+                      "required": true,
+                      "description": "填写论文原文单位；未报告时为空字符串。"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "样品尺寸": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写论文在“样品尺寸”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "说明": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写论文作者对该测试或结果的明确说明，不自行解释。"
+                }
+              },
+              "additionalProperties": false
+            },
+            "光致发光_PL": {
+              "type": "object",
+              "required": false,
+              "description": "填写论文在“光致发光_PL”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+              "properties": {
+                "溶剂": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写论文在“溶剂”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "激发波长": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写论文在“激发波长”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "发射峰_nm": {
+                  "type": "array",
+                  "required": true,
+                  "description": "填写发射峰数值。字段名已指定单位 nm，因此不要在值中重复写 nm。",
+                  "items": {
+                    "type": "string",
+                    "required": true,
+                    "description": "填写论文在“发射峰_nm”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  }
+                },
+                "说明": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写论文作者对该测试或结果的明确说明，不自行解释。"
+                }
+              },
+              "additionalProperties": false
+            },
+            "核磁_NMR": {
+              "type": "object",
+              "required": false,
+              "description": "填写论文在“核磁_NMR”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+              "properties": {
+                "仪器": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写论文明确报告的仪器名称、制造商或型号。"
+                },
+                "1H NMR": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写论文在“1H NMR”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "13C NMR": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写论文在“13C NMR”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                }
+              },
+              "additionalProperties": false
+            },
+            "元素分析_CHN": {
+              "type": "object",
+              "required": false,
+              "description": "填写论文在“元素分析_CHN”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。 C、H、N、Formula of PI、仪器 都是本对象的子字段，必须作为本对象的子键输出，不得提升到表征或聚合物层级。",
+              "properties": {
+                "仪器": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写论文明确报告的仪器名称、制造商或型号。"
+                },
+                "Formula of PI": {
+                  "type": "string",
+                  "required": true,
+                  "description": "填写论文在“Formula of PI”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                },
+                "C": {
+                  "type": "object",
+                  "required": true,
+                  "description": "填写论文在“C”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                  "properties": {
+                    "Calculated": {
+                      "type": "object",
+                      "required": true,
+                      "description": "填写论文在“Calculated”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                      "properties": {
+                        "单值": {
+                          "type": [
+                            "string",
+                            "number"
+                          ],
+                          "required": true,
+                          "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                        },
+                        "单位": {
+                          "type": "string",
+                          "required": true,
+                          "description": "填写论文原文单位；未报告时为空字符串。"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "Found": {
+                      "type": "object",
+                      "required": true,
+                      "description": "填写论文在“Found”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                      "properties": {
+                        "单值": {
+                          "type": [
+                            "string",
+                            "number"
+                          ],
+                          "required": true,
+                          "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                        },
+                        "单位": {
+                          "type": "string",
+                          "required": true,
+                          "description": "填写论文原文单位；未报告时为空字符串。"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "H": {
+                  "type": "object",
+                  "required": true,
+                  "description": "填写论文在“H”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                  "properties": {
+                    "Calculated": {
+                      "type": "object",
+                      "required": true,
+                      "description": "填写论文在“Calculated”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                      "properties": {
+                        "单值": {
+                          "type": [
+                            "string",
+                            "number"
+                          ],
+                          "required": true,
+                          "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                        },
+                        "单位": {
+                          "type": "string",
+                          "required": true,
+                          "description": "填写论文原文单位；未报告时为空字符串。"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "Found": {
+                      "type": "object",
+                      "required": true,
+                      "description": "填写论文在“Found”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                      "properties": {
+                        "单值": {
+                          "type": [
+                            "string",
+                            "number"
+                          ],
+                          "required": true,
+                          "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                        },
+                        "单位": {
+                          "type": "string",
+                          "required": true,
+                          "description": "填写论文原文单位；未报告时为空字符串。"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "N": {
+                  "type": "object",
+                  "required": true,
+                  "description": "填写论文在“N”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                  "properties": {
+                    "Calculated": {
+                      "type": "object",
+                      "required": true,
+                      "description": "填写论文在“Calculated”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                      "properties": {
+                        "单值": {
+                          "type": [
+                            "string",
+                            "number"
+                          ],
+                          "required": true,
+                          "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                        },
+                        "单位": {
+                          "type": "string",
+                          "required": true,
+                          "description": "填写论文原文单位；未报告时为空字符串。"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "Found": {
+                      "type": "object",
+                      "required": true,
+                      "description": "填写论文在“Found”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                      "properties": {
+                        "单值": {
+                          "type": [
+                            "string",
+                            "number"
+                          ],
+                          "required": true,
+                          "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                        },
+                        "单位": {
+                          "type": "string",
+                          "required": true,
+                          "description": "填写论文原文单位；未报告时为空字符串。"
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            },
+            "固有粘度_Viscosity": {
+              "type": "object",
+              "required": false,
+              "description": "填写固有粘度（inherent viscosity）测试结果；未报告时省略。",
+              "properties": {
+                "数值": {
+                  "type": [
+                    "string",
+                    "number"
+                  ],
+                  "required": true,
+                  "description": "固有粘度数值。"
+                },
+                "单位": {
+                  "type": "string",
+                  "required": true,
+                  "description": "数值单位，如 dL/g。"
+                },
+                "测试条件": {
+                  "type": "string",
+                  "required": false,
+                  "description": "测试条件说明（浓度、溶剂、温度、仪器等）。"
+                }
+              },
+              "additionalProperties": false
+            },
+            "溶解性": {
+              "type": "object",
+              "required": false,
+              "description": "填写溶解性测试结果；未报告时省略。",
+              "properties": {
+                "说明": {
+                  "type": "string",
+                  "required": true,
+                  "description": "溶解性说明。"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "性质": {
+          "type": "array",
+          "required": true,
+          "description": "记录论文针对该样品明确报告的性质或性能结果。",
+          "items": {
+            "type": "object",
+            "required": true,
+            "description": "记录论文针对该样品明确报告的性质或性能结果。",
+            "properties": {
+              "类别": {
+                "type": "string",
+                "required": true,
+                "description": "填写性质所属类别，使用英文。"
+              },
+              "名称": {
+                "type": "string",
+                "required": true,
+                "description": "填写论文中用于指代该聚合物或样品的英文名称。"
+              },
+              "缩写": {
+                "type": "string",
+                "required": true,
+                "description": "填写论文使用的性质缩写；未提供时为空字符串。"
+              },
+              "值": {
+                "type": "object",
+                "required": true,
+                "description": "记录性质值及单位。",
+                "properties": {
+                  "最大": {
+                    "type": [
+                      "string",
+                      "number"
+                    ],
+                    "required": false,
+                    "description": "填写范围最大值；记录为字符串，未报告时为空字符串。"
+                  },
+                  "最小": {
+                    "type": [
+                      "string",
+                      "number"
+                    ],
+                    "required": false,
+                    "description": "填写范围最小值；记录为字符串，未报告时为空字符串。"
+                  },
+                  "单值": {
+                    "type": [
+                      "string",
+                      "number"
+                    ],
+                    "required": true,
+                    "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                  },
+                  "单位": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文原文单位；未报告时为空字符串。"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "测试条件": {
+                "type": "object",
+                "required": true,
+                "description": "填写论文在该表征项下明确归组的测试条件；不要把其他段落信息自行移入。",
+                "properties": {
+                  "样品": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“样品”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "样品尺寸": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“样品尺寸”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "方法": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“方法”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "仪器": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文明确报告的仪器名称、制造商或型号。"
+                  },
+                  "样品预处理": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“样品预处理”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "表面处理": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“表面处理”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "测试波长": {
+                    "type": "object",
+                    "required": false,
+                    "description": "填写论文在“测试波长”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "测试温度": {
+                    "type": [
+                      "object",
+                      "string"
+                    ],
+                    "required": false,
+                    "description": "填写论文在“测试温度”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      },
+                      "最大": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": false,
+                        "description": "填写范围最大值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "最小": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": false,
+                        "description": "填写范围最小值；记录为字符串，未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "相对湿度": {
+                    "type": [
+                      "object",
+                      "string"
+                    ],
+                    "required": false,
+                    "description": "填写论文在“相对湿度”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      },
+                      "最大": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": false,
+                        "description": "填写范围最大值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "最小": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": false,
+                        "description": "填写范围最小值；记录为字符串，未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "测试频率": {
+                    "type": [
+                      "object",
+                      "string"
+                    ],
+                    "required": false,
+                    "description": "填写论文在“测试频率”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      },
+                      "最大": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": false,
+                        "description": "填写范围最大值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "最小": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": false,
+                        "description": "填写范围最小值；记录为字符串，未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "测试模式": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文明确报告的测试模式。"
+                  },
+                  "测试应力范围": {
+                    "type": [
+                      "object",
+                      "string"
+                    ],
+                    "required": false,
+                    "description": "填写论文在“测试应力范围”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "最大": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写范围最大值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "最小": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写范围最小值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": false,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "气氛": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“气氛”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "测试温度范围": {
+                    "type": [
+                      "object",
+                      "string"
+                    ],
+                    "required": false,
+                    "description": "填写论文在“测试温度范围”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "最大": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写范围最大值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "最小": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写范围最小值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": false,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "升温速率": {
+                    "type": [
+                      "object",
+                      "string"
+                    ],
+                    "required": false,
+                    "description": "填写论文在“升温速率”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "降温速率": {
+                    "type": "object",
+                    "required": false,
+                    "description": "填写论文在“降温速率”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "温度扫描范围": {
+                    "type": [
+                      "object",
+                      "string"
+                    ],
+                    "required": false,
+                    "description": "填写论文在“温度扫描范围”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "最大": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写范围最大值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "最小": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写范围最小值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": false,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "温度扫描速率": {
+                    "type": "object",
+                    "required": false,
+                    "description": "填写论文在“温度扫描速率”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "测试速率": {
+                    "type": [
+                      "object",
+                      "string"
+                    ],
+                    "required": false,
+                    "description": "填写论文在“测试速率”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "最大": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": false,
+                        "description": "填写范围最大值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "最小": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": false,
+                        "description": "填写范围最小值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "应变": {
+                    "type": [
+                      "object",
+                      "string"
+                    ],
+                    "required": false,
+                    "description": "填写论文在“应变”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "最大": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": false,
+                        "description": "填写范围最大值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "最小": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": false,
+                        "description": "填写范围最小值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "液滴体积": {
+                    "type": "object",
+                    "required": false,
+                    "description": "填写论文在“液滴体积”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "温度": {
+                    "type": [
+                      "object",
+                      "string"
+                    ],
+                    "required": false,
+                    "description": "填写测试温度；数值与表达均记录为字符串。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "拉伸速率": {
+                    "type": "object",
+                    "required": false,
+                    "description": "填写论文在“拉伸速率”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "标准": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“标准”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "引伸计": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“引伸计”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "测试湿度": {
+                    "type": [
+                      "object",
+                      "string"
+                    ],
+                    "required": false,
+                    "description": "填写论文在“测试湿度”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "频率": {
+                    "type": "object",
+                    "required": false,
+                    "description": "填写论文在“频率”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "最终温度": {
+                    "type": "object",
+                    "required": false,
+                    "description": "填写论文在“最终温度”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "厚度": {
+                    "type": "object",
+                    "required": false,
+                    "description": "填写论文在“厚度”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "波长": {
+                    "type": "object",
+                    "required": false,
+                    "description": "填写论文在“波长”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "测试波长范围": {
+                    "type": [
+                      "object",
+                      "string"
+                    ],
+                    "required": false,
+                    "description": "填写论文在“测试波长范围”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "最小": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写范围最小值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "最大": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写范围最大值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "测试介质": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“测试介质”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "浸泡时间": {
+                    "type": [
+                      "object",
+                      "string"
+                    ],
+                    "required": false,
+                    "description": "填写论文在“浸泡时间”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "结果来源": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“结果来源”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "备注": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文明确给出的补充说明。"
+                  },
+                  "结果": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“结果”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "流动相或溶剂": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“流动相或溶剂”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "浓度": {
+                    "type": [
+                      "object",
+                      "string"
+                    ],
+                    "required": false,
+                    "description": "填写论文在“浓度”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "封装材质": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“封装材质”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "preload": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“preload”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "溶剂": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“溶剂”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "说明": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文作者对该测试或结果的明确说明，不自行解释。"
+                  },
+                  "浸泡介质": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“浸泡介质”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "模式": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“模式”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "载荷": {
+                    "type": "object",
+                    "required": false,
+                    "description": "填写论文在“载荷”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "应力": {
+                    "type": "object",
+                    "required": false,
+                    "description": "填写论文在“应力”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "测试条件": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在该表征项下明确归组的测试条件；不要把其他段落信息自行移入。"
+                  },
+                  "测试时间": {
+                    "type": "object",
+                    "required": false,
+                    "description": "填写论文在“测试时间”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "测试电压": {
+                    "type": [
+                      "object",
+                      "string"
+                    ],
+                    "required": false,
+                    "description": "填写论文在“测试电压”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "最大": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": false,
+                        "description": "填写范围最大值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "最小": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": false,
+                        "description": "填写范围最小值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "充电时间": {
+                    "type": [
+                      "object",
+                      "string"
+                    ],
+                    "required": false,
+                    "description": "填写论文在“充电时间”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "最大": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": false,
+                        "description": "填写范围最大值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "最小": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": false,
+                        "description": "填写范围最小值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "电化时间": {
+                    "type": [
+                      "object",
+                      "string"
+                    ],
+                    "required": false,
+                    "description": "填写论文在“电化时间”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "最大": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": false,
+                        "description": "填写范围最大值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "最小": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": false,
+                        "description": "填写范围最小值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "测试信号电压": {
+                    "type": [
+                      "object",
+                      "string"
+                    ],
+                    "required": false,
+                    "description": "填写论文在“测试信号电压”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "最大": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": false,
+                        "description": "填写范围最大值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "最小": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": false,
+                        "description": "填写范围最小值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "浸泡液体": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“浸泡液体”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "浸泡温度": {
+                    "type": "object",
+                    "required": false,
+                    "description": "填写论文在“浸泡温度”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "测试湿度范围": {
+                    "type": [
+                      "object",
+                      "string"
+                    ],
+                    "required": false,
+                    "description": "填写论文在“测试湿度范围”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "最大": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写范围最大值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "最小": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写范围最小值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "液晶": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“液晶”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "摩擦密度": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“摩擦密度”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "组装": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“组装”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "结果说明": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“结果说明”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "摩擦设备": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“摩擦设备”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "探针液体": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“探针液体”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "退火温度": {
+                    "type": "object",
+                    "required": false,
+                    "description": "填写论文在“退火温度”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "测量温度": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“测量温度”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "测量间隔": {
+                    "type": "object",
+                    "required": false,
+                    "description": "填写论文在“测量间隔”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "激发波长": {
+                    "type": [
+                      "object",
+                      "string"
+                    ],
+                    "required": false,
+                    "description": "填写论文在“激发波长”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "测试压力": {
+                    "type": "object",
+                    "required": false,
+                    "description": "填写论文在“测试压力”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "电流倍率": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“电流倍率”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "循环电压范围": {
+                    "type": [
+                      "object",
+                      "string"
+                    ],
+                    "required": false,
+                    "description": "填写论文在“循环电压范围”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "最大": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写范围最大值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "最小": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写范围最小值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "超声时间": {
+                    "type": "object",
+                    "required": false,
+                    "description": "填写论文在“超声时间”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "扫描速率": {
+                    "type": [
+                      "object",
+                      "string"
+                    ],
+                    "required": false,
+                    "description": "填写论文在“扫描速率”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "最小": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": false,
+                        "description": "填写范围最小值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "最大": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": false,
+                        "description": "填写范围最大值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      },
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": false,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "电压范围": {
+                    "type": [
+                      "object",
+                      "string"
+                    ],
+                    "required": false,
+                    "description": "填写论文在“电压范围”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "最小": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写范围最小值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "最大": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写范围最大值；记录为字符串，未报告时为空字符串。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "电流倍率程序": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“电流倍率程序”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "循环次数": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“循环次数”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "开发液": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“开发液”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "张力": {
+                    "type": "object",
+                    "required": false,
+                    "description": "填写论文在“张力”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "样品厚度": {
+                    "type": "object",
+                    "required": false,
+                    "description": "填写论文在“样品厚度”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "工作电极": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“工作电极”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "对电极": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“对电极”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "参比电极": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“参比电极”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "电解液": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“电解液”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "电位标定": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“电位标定”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "测试溶剂": {
+                    "type": "string",
+                    "required": false,
+                    "description": "填写论文在“测试溶剂”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                  },
+                  "流速": {
+                    "type": "object",
+                    "required": false,
+                    "description": "填写论文在“流速”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                    "properties": {
+                      "单值": {
+                        "type": [
+                          "string",
+                          "number"
+                        ],
+                        "required": true,
+                        "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                      },
+                      "单位": {
+                        "type": "string",
+                        "required": true,
+                        "description": "填写论文原文单位；未报告时为空字符串。"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "工艺流程": {
+          "type": "array",
+          "required": true,
+          "description": "记录论文中的聚合物制备步骤；不输出位置索引、证据块、置信度等标注追踪信息。",
+          "items": {
+            "type": "object",
+            "required": true,
+            "description": "按论文中区分的制备或处理流程分别建立对象。",
+            "properties": {
+              "产物名称": {
+                "type": "string",
+                "required": true,
+                "description": "填写该流程所得产物名称。"
+              },
+              "产物质量": {
+                "type": "string",
+                "required": true,
+                "description": "填写论文在“产物质量”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+              },
+              "产物单位": {
+                "type": "string",
+                "required": true,
+                "description": "填写论文在“产物单位”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+              },
+              "产物收率百分比": {
+                "type": "string",
+                "required": true,
+                "description": "填写产物收率。数值收率必须包含百分号，例如 98%；若论文仅给出 qualitative yield，可保留原文英文描述；未报告时为空字符串。"
+              },
+              "原料": {
+                "type": "array",
+                "required": true,
+                "description": "列出该流程明确使用的原料、单体、试剂或添加剂。",
+                "items": {
+                  "type": "object",
+                  "required": true,
+                  "description": "列出该流程明确使用的原料、单体、试剂或添加剂。",
+                  "properties": {
+                    "原料名称": {
+                      "type": "string",
+                      "required": true,
+                      "description": "填写论文在“原料名称”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                    },
+                    "原料类别": {
+                      "type": "string",
+                      "required": true,
+                      "description": "填写原料在实验中的大类角色，例如 monomer、solvent、catalyst、base、reagent。"
+                    },
+                    "单体类型": {
+                      "type": "string",
+                      "required": false,
+                      "description": "仅对单体填写具体单体类型，例如 diamine、dianhydride；非单体原料填写空字符串。"
+                    },
+                    "IUPAC名称": {
+                      "type": "string",
+                      "required": false,
+                      "description": "填写论文在“IUPAC名称”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                    },
+                    "缩写": {
+                      "type": "string",
+                      "required": false,
+                      "description": "填写论文使用的性质缩写；未提供时为空字符串。"
+                    },
+                    "分子式": {
+                      "type": "string",
+                      "required": false,
+                      "description": "填写论文在“分子式”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                    },
+                    "SMILES": {
+                      "type": "string",
+                      "required": false,
+                      "description": "填写论文在“SMILES”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                    },
+                    "CAS号": {
+                      "type": "string",
+                      "required": false,
+                      "description": "填写论文在“CAS号”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                    },
+                    "InChI": {
+                      "type": "string",
+                      "required": false,
+                      "description": "填写论文在“InChI”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                    },
+                    "质量": {
+                      "type": [
+                        "object",
+                        "string"
+                      ],
+                      "required": false,
+                      "description": "填写原料的质量信息，统一使用“单值”和“单位”两个字符串字段。",
+                      "properties": {
+                        "单值": {
+                          "type": [
+                            "string",
+                            "number"
+                          ],
+                          "required": true,
+                          "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                        },
+                        "单位": {
+                          "type": "string",
+                          "required": true,
+                          "description": "填写论文原文单位；未报告时为空字符串。"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "体积": {
+                      "type": [
+                        "object",
+                        "string"
+                      ],
+                      "required": false,
+                      "description": "填写原料的体积信息，统一使用“单值”和“单位”两个字符串字段。",
+                      "properties": {
+                        "单值": {
+                          "type": [
+                            "string",
+                            "number"
+                          ],
+                          "required": true,
+                          "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                        },
+                        "单位": {
+                          "type": "string",
+                          "required": true,
+                          "description": "填写论文原文单位；未报告时为空字符串。"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "摩尔量": {
+                      "type": [
+                        "object",
+                        "string"
+                      ],
+                      "required": false,
+                      "description": "填写原料的摩尔量信息，统一使用“单值”和“单位”两个字符串字段。",
+                      "properties": {
+                        "单值": {
+                          "type": [
+                            "string",
+                            "number"
+                          ],
+                          "required": true,
+                          "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                        },
+                        "单位": {
+                          "type": "string",
+                          "required": true,
+                          "description": "填写论文原文单位；未报告时为空字符串。"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "当量比": {
+                      "type": [
+                        "object",
+                        "string"
+                      ],
+                      "required": false,
+                      "description": "填写论文在“当量比”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                      "properties": {
+                        "单值": {
+                          "type": [
+                            "string",
+                            "number"
+                          ],
+                          "required": true,
+                          "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                        },
+                        "单位": {
+                          "type": "string",
+                          "required": true,
+                          "description": "填写论文原文单位；未报告时为空字符串。"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "浓度": {
+                      "type": [
+                        "object",
+                        "string"
+                      ],
+                      "required": false,
+                      "description": "填写原料的浓度信息，统一使用“单值”和“单位”两个字符串字段。",
+                      "properties": {
+                        "单值": {
+                          "type": [
+                            "string",
+                            "number"
+                          ],
+                          "required": true,
+                          "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                        },
+                        "单位": {
+                          "type": "string",
+                          "required": true,
+                          "description": "填写论文原文单位；未报告时为空字符串。"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "纯度": {
+                      "type": [
+                        "object",
+                        "string"
+                      ],
+                      "required": false,
+                      "description": "填写论文在“纯度”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                      "properties": {
+                        "单值": {
+                          "type": [
+                            "string",
+                            "number"
+                          ],
+                          "required": true,
+                          "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                        },
+                        "单位": {
+                          "type": "string",
+                          "required": true,
+                          "description": "填写论文原文单位；未报告时为空字符串。"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "投料方式": {
+                      "type": "string",
+                      "required": false,
+                      "description": "填写论文在“投料方式”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                    },
+                    "型号": {
+                      "type": "string",
+                      "required": false,
+                      "description": "填写论文在“型号”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                    },
+                    "来源": {
+                      "type": "string",
+                      "required": false,
+                      "description": "填写论文在“来源”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                    },
+                    "表征": {
+                      "type": "string",
+                      "required": false,
+                      "description": "记录该聚合物样品明确报告的表征信息；只能使用本对象中定义的字段。"
+                    },
+                    "说明": {
+                      "type": "string",
+                      "required": false,
+                      "description": "填写论文作者对该测试或结果的明确说明，不自行解释。"
+                    },
+                    "原料类型": {
+                      "type": "string",
+                      "required": false,
+                      "description": "填写比原料类别更具体的功能或化学类型，例如 reaction solvent、dehydrating reagent、dianhydride；不要与原料类别机械重复。"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "反应条件": {
+                "type": "array",
+                "required": true,
+                "description": "按论文中区分的反应阶段记录条件。",
+                "items": {
+                  "type": [
+                    "object",
+                    "string"
+                  ],
+                  "required": true,
+                  "description": "按论文中区分的反应阶段记录条件。",
+                  "properties": {
+                    "反应装置": {
+                      "type": "string",
+                      "required": false,
+                      "description": "填写论文在“反应装置”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                    },
+                    "反应气氛": {
+                      "type": "string",
+                      "required": false,
+                      "description": "填写论文在“反应气氛”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                    },
+                    "反应温度": {
+                      "type": "object",
+                      "required": true,
+                      "description": "填写论文在“反应温度”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                      "properties": {
+                        "单值": {
+                          "type": [
+                            "string",
+                            "number"
+                          ],
+                          "required": true,
+                          "description": "填写单一温度、温度范围或多阶段温度程序的英文数值字符串；不要在此字段重复写单位。"
+                        },
+                        "单位": {
+                          "type": "string",
+                          "required": true,
+                          "description": "填写论文原文单位；未报告时为空字符串。"
+                        },
+                        "说明": {
+                          "type": "string",
+                          "required": false,
+                          "description": "反应温度程序或补充说明。"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "压力": {
+                      "type": "object",
+                      "required": false,
+                      "description": "填写论文在“压力”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                      "properties": {
+                        "单值": {
+                          "type": [
+                            "string",
+                            "number"
+                          ],
+                          "required": true,
+                          "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                        },
+                        "单位": {
+                          "type": "string",
+                          "required": true,
+                          "description": "填写论文原文单位；未报告时为空字符串。"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "溶剂": {
+                      "type": "string",
+                      "required": false,
+                      "description": "填写论文在“溶剂”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                    },
+                    "溶剂量": {
+                      "type": "object",
+                      "required": false,
+                      "description": "填写论文在“溶剂量”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                      "properties": {
+                        "单值": {
+                          "type": [
+                            "string",
+                            "number"
+                          ],
+                          "required": true,
+                          "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                        },
+                        "单位": {
+                          "type": "string",
+                          "required": true,
+                          "description": "填写论文原文单位；未报告时为空字符串。"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "浓度": {
+                      "type": [
+                        "object",
+                        "string"
+                      ],
+                      "required": false,
+                      "description": "填写论文在“浓度”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                      "properties": {
+                        "单值": {
+                          "type": [
+                            "string",
+                            "number"
+                          ],
+                          "required": true,
+                          "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                        },
+                        "单位": {
+                          "type": "string",
+                          "required": true,
+                          "description": "填写论文原文单位；未报告时为空字符串。"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "反应时间": {
+                      "type": "object",
+                      "required": false,
+                      "description": "填写论文在“反应时间”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。",
+                      "properties": {
+                        "单值": {
+                          "type": [
+                            "string",
+                            "number"
+                          ],
+                          "required": true,
+                          "description": "填写单个数值或定性结果；记录为字符串，不自行换算。"
+                        },
+                        "单位": {
+                          "type": "string",
+                          "required": true,
+                          "description": "填写论文原文单位；未报告时为空字符串。"
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "制备过程": {
+                      "type": "string",
+                      "required": false,
+                      "description": "填写论文在“制备过程”字段中明确报告的信息；使用英文字符串，不推断或补充未报告内容。"
+                    },
+                    "反应条件": {
+                      "type": "string",
+                      "required": false,
+                      "description": "填写该反应条件条目的具体操作或条件描述文本（如加料方式、搅拌、氛围、阶段步骤、容器等），与本条目的其他字段并列；不要与上级的“反应条件”列表字段混用。"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "后处理步骤": {
+                "type": [
+                  "string",
+                  "array"
+                ],
+                "required": true,
+                "description": "将沉淀、过滤、洗涤、干燥、成膜等后处理步骤按原文顺序合并为一个英文字符串；不要输出数组。",
+                "items": {
+                  "type": "string",
+                  "required": false
+                }
+              },
+              "位置索引": {
+                "type": "object",
+                "required": false,
+                "description": "证据溯源信息（原文出处定位）。由标注或抽取工具生成的可选追踪元数据；论文或标注未提供时省略。不作为化学内容的评判依据。",
+                "properties": {
+                  "block_id": {
+                    "type": "string",
+                    "required": false,
+                    "description": "原文块标识。"
+                  },
+                  "md_range": {
+                    "type": "string",
+                    "required": false,
+                    "description": "原文页码范围。"
+                  },
+                  "原文": {
+                    "type": "string",
+                    "required": false,
+                    "description": "原文引用文本。"
+                  },
+                  "置信度": {
+                    "type": "number",
+                    "required": false,
+                    "description": "标注置信度（0-1）。"
+                  },
+                  "证据原文引用": {
+                    "type": "array",
+                    "required": false,
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "支撑证据的原文引用列表。"
+                  },
+                  "证据坐标": {
+                    "type": "array",
+                    "required": false,
+                    "items": {
+                      "type": [
+                        "string",
+                        "number"
+                      ]
+                    },
+                    "description": "证据坐标定位。"
+                  },
+                  "证据块 ID": {
+                    "type": "array",
+                    "required": false,
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "证据块标识列表。"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "位置索引": {
+          "type": "object",
+          "required": false,
+          "description": "证据溯源信息（原文出处定位）。由标注或抽取工具生成的可选追踪元数据；论文或标注未提供时省略。不作为化学内容的评判依据。",
+          "properties": {
+            "block_id": {
+              "type": "string",
+              "required": false,
+              "description": "原文块标识。"
+            },
+            "md_range": {
+              "type": "string",
+              "required": false,
+              "description": "原文页码范围。"
+            },
+            "原文": {
+              "type": "string",
+              "required": false,
+              "description": "原文引用文本。"
+            },
+            "置信度": {
+              "type": "number",
+              "required": false,
+              "description": "标注置信度（0-1）。"
+            },
+            "证据原文引用": {
+              "type": "array",
+              "required": false,
+              "items": {
+                "type": "string"
+              },
+              "description": "支撑证据的原文引用列表。"
+            },
+            "证据坐标": {
+              "type": "array",
+              "required": false,
+              "items": {
+                "type": [
+                  "string",
+                  "number"
+                ]
+              },
+              "description": "证据坐标定位。"
+            },
+            "证据块 ID": {
+              "type": "array",
+              "required": false,
+              "items": {
+                "type": "string"
+              },
+              "description": "证据块标识列表。"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "description": "字段名和层级遵循统一后的金标准结构。文本值使用英文；所有标量叶子使用 string，不使用 null。固定模块即使未报告也保留空字段；可选字段仅在论文明确报告时填写。"
+}

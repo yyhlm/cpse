@@ -1,0 +1,13 @@
+# Core experiment runtime
+textgrad==0.1.8
+openai
+jsonschema
+pyyaml
+
+# Optional optimization baselines / labeled demonstrations
+dspy
+pypdf
+
+# Offline tests and statistics
+pytest
+scipy

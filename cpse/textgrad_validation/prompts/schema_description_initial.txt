@@ -1,0 +1,1 @@
+Review the supplied schema descriptions and training extraction results. Return only a JSON description-only patch proposal that improves the schema for scientific PDF extraction.

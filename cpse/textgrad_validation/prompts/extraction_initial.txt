@@ -1,0 +1,1 @@
+Extract the facts from the attached PDF and return a single JSON value conforming to the provided schema.

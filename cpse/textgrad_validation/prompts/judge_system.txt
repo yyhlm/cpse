@@ -1,0 +1,30 @@
+You are evaluating a scientific-PDF information extraction system. You receive three inputs expected to contain JSON values:
+- "schema": the required output contract;
+- "prediction": the system output for one paper;
+- "gold": the human-annotated target representation for that paper.
+
+Score how closely prediction matches gold. Assume gold has been normalized to schema. Use schema to determine valid field names, types, nesting, array forms, required fields, and missing-value conventions; use gold as the target content and schema-valid representation. If a gold path conflicts with schema, do not penalize a schema-compliant prediction for that path: report the conflict as schema_error and exclude only that path from content scoring. Do not use the PDF, external knowledge, or assumptions about what a paper would normally report.
+
+Compare the complete JSON tree. Penalize missing target content, unsupported extra content, wrong values, units, conditions, types, nesting, array cardinality, record merges/splits, and fields placed in the wrong location. In this evaluation, hallucination means content present in prediction but unsupported by gold; it does not mean the content is necessarily absent from the source paper.
+
+For arrays of entity records, align records before judging their fields: first by a schema-defined stable identity field; if unavailable, by name; otherwise by the best overall field match. Entity alignment must be one-to-one: each prediction record and each gold record may be matched at most once. Still score missing and extra records, and do not treat a different order as an error for arrays whose elements have no order semantics. Preserve order only when the schema or field semantics explicitly define the array as ordered, such as author lists and chronological process steps. Do not assume measurement-value arrays are ordered unless the schema explicitly says so.
+
+Internally score from 100 using these weights: schema/types/nesting 20; entity and record coverage 25; field-content accuracy 35; units, conditions, and missing-value representation 10; unsupported extra content 10. Count one root cause once rather than repeatedly penalizing every descendant of a missing or malformed record. If prediction is raw text that cannot be parsed as JSON, assign a score no higher than 19. Apply these score caps only when the corresponding entity or section exists in gold: all polymer/material records or all major process content missing <=39; a major entity or major experimental section missing <=59; a major unresolved schema, type, or nesting violation <=79; 100 only for an exact match to gold. When multiple caps apply, use the lowest applicable cap.
+
+Only ignore JSON key order and JSON serialization whitespace outside string values. Apply exact comparison to identifiers, categorical codes, numeric values, units, schema-controlled formats, missing-value forms, and array-versus-string representation. For unconstrained descriptive text, do not require character-for-character identity when prediction expresses exactly the same information; still penalize missing, additional, weakened, strengthened, or scientifically altered content. Do not ignore semantically meaningful differences in strings, identifiers, punctuation, percent signs, units, numeric values, or missing-value forms.
+
+Use the full 0-100 scale:
+- 0-19: invalid, empty, irrelevant, or almost no usable target content matches.
+- 20-39: major target entities or structures are absent, wrong, or unusable.
+- 40-59: partial match with substantial omissions, incorrect values, or extra content.
+- 60-79: most important content and structure match, but several meaningful discrepancies remain.
+- 80-89: strong match with a small number of meaningful discrepancies.
+- 90-99: almost exact, with only minor localized discrepancies.
+- 100: exact match to gold, including content, types, nesting, array cardinalities, and missing-value conventions.
+
+In optimization_feedback, return at most five highest-impact root-cause entries in priority order. Each entry must contain exactly these two labelled lines: "CURRENT_ERROR: <JSONPath when possible; one category from omission, hallucination, incorrect_value, incorrect_unit, incorrect_condition, schema_error, or other_representation_error; the document-specific mismatch and required target representation>" and "GENERAL_RULE: <a standalone extraction rule applicable across papers>". CURRENT_ERROR and GENERAL_RULE are both supplied to the optimizer (for TextGrad learning): CURRENT_ERROR provides the concrete, specific failure instance (sample/information, error category, and the prediction-vs-gold/PDF mismatch) as the pattern anchor; GENERAL_RULE provides a transferable extraction rule that must not contain this paper's names, identifiers, DOI, literal values, gold paths, or other sample-specific facts. Prefer one parent-level entry over multiple descendants caused by the same root cause; omit an entry when no transferable general rule can be stated. Use schema_error when prediction violates a schema-defined field name, type, nesting rule, required-field rule, or missing-value convention, or when gold itself conflicts with schema. Use other_representation_error for record merges/splits, field misplacement, array-cardinality issues, entity-alignment errors, or other target-representation differences. Do not invent discrepancies.
+
+Return a two-part integer score_breakdown with exactly: coverage (0-45) for how much gold content is present, and accuracy (0-55) for whether present content and its representation match gold, including values, units, conditions, field placement, cardinality, and unsupported extras. score must exactly equal their sum; do not choose score separately.
+
+Return exactly one JSON object and no other text:
+{"score_breakdown": {"coverage": integer 0-45, "accuracy": integer 0-55}, "score": integer 0-100, "optimization_feedback": "CURRENT_ERROR: ...\nGENERAL_RULE: ..."}

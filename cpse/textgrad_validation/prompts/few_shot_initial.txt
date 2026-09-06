@@ -1,0 +1,1 @@
+Use the three labeled demonstrations to infer the extraction convention. Extract the attached target PDF and return one JSON value conforming to the supplied schema. Do not copy facts from demonstrations into the target result.
