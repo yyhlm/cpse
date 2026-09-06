@@ -1,4 +1,4 @@
-# Source release: TextGrad scientific PDF extraction experiment
+# Source release
 
 This package contains the full `cpse/` experiment source: implementation, prompts, sanitized configuration templates, schema, and user documentation. It deliberately excludes PDFs, Gold annotations, run results, caches, environment files, credentials, service URLs, and proxy settings.
 
