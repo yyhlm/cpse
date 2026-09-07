@@ -34,6 +34,10 @@ IDENTITY_FIELDS = (
     "结构特征_L2",
     "位置索引",
 )
+# Evidence provenance can differ when the same scientific identity is mentioned
+# in multiple tables, figures, or text blocks.  It is retained in the manifest
+# stub, but must not turn those mentions into distinct scientific identities.
+IDENTITY_CONFLICT_FIELDS = tuple(field for field in IDENTITY_FIELDS if field != "位置索引")
 CONTENT_FIELDS = ("性质", "工艺流程", "表征")
 BATCH_SIZE = 5
 
@@ -279,7 +283,7 @@ def _deduplicate_identity_manifest(manifest: list[dict[str, Any]]) -> tuple[list
             continue
 
         conflicts: list[str] = []
-        for field in IDENTITY_FIELDS:
+        for field in IDENTITY_CONFLICT_FIELDS:
             original = unique[existing_index].get(field)
             duplicate = identity.get(field)
             if (
@@ -380,7 +384,7 @@ def merge_two_stage(
     manifest_keys = [_identity_key(m) for m in manifest]
     expected = set(manifest_keys)
 
-    merged_polymers: list[dict[str, Any]] = []
+    merged_polymers: list[Any] = []
     literature = stage1.get("metadata_evidence")
     if not isinstance(literature, dict):
         raise TwoStageError("stage 1 metadata_evidence must be an object")
@@ -400,13 +404,19 @@ def merge_two_stage(
                 )
             seen[key] = batch_idx
         for poly in batch.get("聚合物", []) or []:
+            if not isinstance(poly, dict):
+                warnings.append(
+                    f"batch {batch_idx}: non-object polymer record retained for schema validation"
+                )
+                merged_polymers.append(poly)
+                continue
             key = _identity_key(poly)
             if key not in expected:
                 warnings.append(f"batch {batch_idx}: polymer {key!r} not in manifest (fabricated?)")
             merged_polymers.append(poly)
 
     # Exactly-once enforcement: every manifest identity must appear exactly once.
-    poly_keys = [_identity_key(p) for p in merged_polymers]
+    poly_keys = [_identity_key(p) for p in merged_polymers if isinstance(p, dict)]
     poly_count: dict[str, int] = {}
     for k in poly_keys:
         poly_count[k] = poly_count.get(k, 0) + 1
@@ -439,6 +449,7 @@ def extract_two_stage(
     coverage_plan_system_prompt: str | None = None,
     evidence_routing_prompt: str | None = None,
     batch_size: int = BATCH_SIZE,
+    stage1_override: dict[str, Any] | None = None,
     max_parallel_batches: int = 1,
     api_call_semaphore: Any | None = None,
     cancel_event: Any | None = None,
@@ -492,28 +503,35 @@ def extract_two_stage(
             api_call_semaphore.release()
 
     stage1_schema = stage1_intermediate_schema(root_schema_dsl)
-    stage1_raw, stage1_meta = _complete_pdf_json(
-        pdf_path=pdf_path,
-        system_prompt=evidence_system_prompt,
-        payload={"schema": json.dumps(stage1_schema, ensure_ascii=False), "extraction_prompt": evidence_prompt},
-        json_schema=stage1_schema,
-        json_schema_name="two_stage_stage1",
-        json_schema_capability_scope="two_stage_stage1",
-    )
-    stage1_artifact = validate_prediction(stage1_raw, stage1_schema)
-    if not stage1_artifact.is_valid:
-        stage1_parsed = _parse_json_object(stage1_raw)
-        if stage1_parsed is None:
-            raise TwoStageValidationError(
-                stage=1,
-                raw_response=stage1_raw,
-                validation_errors=stage1_artifact.validation_errors,
-            )
-        metadata["stage_validation_warnings"].append(
-            {"stage": 1, "validation_errors": list(stage1_artifact.validation_errors)}
-        )
+    if stage1_override is not None:
+        stage1_parsed = json.loads(json.dumps(stage1_override, ensure_ascii=False))
+        stage1_raw = json.dumps(stage1_parsed, ensure_ascii=False)
+        stage1_meta: dict[str, Any] = {"usage": None}
+        metadata["stage1_reused"] = True
     else:
-        stage1_parsed = stage1_artifact.parsed_prediction or {}
+        stage1_raw, stage1_meta = _complete_pdf_json(
+            pdf_path=pdf_path,
+            system_prompt=evidence_system_prompt,
+            payload={"schema": json.dumps(stage1_schema, ensure_ascii=False), "extraction_prompt": evidence_prompt},
+            json_schema=stage1_schema,
+            json_schema_name="two_stage_stage1",
+            json_schema_capability_scope="two_stage_stage1",
+        )
+        stage1_artifact = validate_prediction(stage1_raw, stage1_schema)
+        if not stage1_artifact.is_valid:
+            stage1_parsed = _parse_json_object(stage1_raw)
+            if stage1_parsed is None:
+                raise TwoStageValidationError(
+                    stage=1,
+                    raw_response=stage1_raw,
+                    validation_errors=stage1_artifact.validation_errors,
+                )
+            metadata["stage_validation_warnings"].append(
+                {"stage": 1, "validation_errors": list(stage1_artifact.validation_errors)}
+            )
+        else:
+            stage1_parsed = stage1_artifact.parsed_prediction or {}
+        metadata["stage1_reused"] = False
     manifest = stage1_parsed.get("identity_manifest") or []
     if (
         not isinstance(stage1_parsed.get("metadata_evidence"), dict)
@@ -530,6 +548,7 @@ def extract_two_stage(
     raw_manifest_count = len(manifest)
     manifest, manifest_warnings = _deduplicate_identity_manifest(manifest)
     stage1_parsed = {**stage1_parsed, "identity_manifest": manifest}
+    metadata["stage1_output"] = stage1_parsed
     metadata["stage1_manifest_warnings"].extend(manifest_warnings)
     metadata["stages"].append(
         {

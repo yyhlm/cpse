@@ -184,6 +184,8 @@ class ResponsesPdfClient:
         }
         if self._config.max_output_tokens is not None:
             request["max_output_tokens"] = self._config.max_output_tokens
+        if self._config.reasoning_effort:
+            request["reasoning"] = {"effort": self._config.reasoning_effort}
         if self._config.use_instructions:
             request["instructions"] = system_prompt
         response = self._call_with_retry(request, operation=operation)

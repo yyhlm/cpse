@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import threading
 import time
@@ -25,7 +26,7 @@ from .gold_audit import GoldAuditor
 from .judge import GoldJudge, parse_judge_result
 from .shared_cache import SharedCache
 from .validator import prediction_or_failure_payload
-from .models import AlternatingCandidate, CandidateSummary, DatasetSplit, ExperimentConfig, GoldAuditFinding, GoldAuditResult, JudgeResult, PredictionArtifact, RunManifest
+from .models import AlternatingCandidate, CandidateSummary, DatasetSplit, ExperimentConfig, GoldAuditFinding, GoldAuditResult, JudgeResult, PathError, PredictionArtifact, RunManifest
 from .optimizer import AlternatingSchemaDescriptionOptimizer, EvidenceRoutingTwoStageOptimizer, TwoStageOptimizer
 from .reporting import write_alternating_report, write_alternating_training_summary, write_blind_test_summary, write_report, write_training_summary
 from .responses_client import api_operation
@@ -51,6 +52,7 @@ MIN_BLIND_TEST_IMPROVEMENT = 3.0
 # Kept as a named protocol family so the coverage-plan extension never changes
 # dispatch, resume, or reporting behavior of the established two-stage mode.
 TWO_STAGE_OPTIMIZATION_MODES = frozenset({
+    "gepa_manifest",
     "two_stage_alternating_schema_description",
     "two_stage_coverage_plan_schema_description",
     "two_stage_evidence_routing_schema_description",
@@ -59,6 +61,17 @@ TWO_STAGE_OPTIMIZATION_MODES = frozenset({
 
 def _is_two_stage_mode(mode: str) -> bool:
     return mode in TWO_STAGE_OPTIMIZATION_MODES
+
+
+def _training_complete_for_retry(checkpoint: dict[str, Any], mode: str) -> bool:
+    stage = "training_complete" if mode == "gepa_manifest" else "alternating_training_complete"
+    return bool(checkpoint.get("stages", {}).get(stage))
+
+
+def _primary_arm_requires_retry(status: Any, *, artifacts_complete: bool) -> bool:
+    if status == "skipped":
+        return False
+    return status != "valid" or not artifacts_complete
 
 
 def _paired_retry_summary(records: list[dict[str, Any]]) -> dict[str, float | int | None]:
@@ -265,6 +278,8 @@ class ExperimentRunner:
         smoke_training: bool = False,
         resume: str = "allow",
         invocation_command: str | None = None,
+        skip_blind_baseline: bool = False,
+        retry_below_score: float | None = None,
     ) -> Path:
         run_dir = self.config.output_root / run_id
         meta_dir = run_dir / "meta"
@@ -301,6 +316,20 @@ class ExperimentRunner:
         train_records = split.train if not smoke_training else split.train[:1]
 
         requested_max_iterations = max_iterations or self.config.max_iterations
+        if self.config.optimization_mode == "gepa_manifest":
+            try:
+                return self._run_gepa_manifest(
+                    run_dir,
+                    split,
+                    requested_max_iterations,
+                    smoke_blind_doc,
+                    smoke_training,
+                    checkpoint,
+                    skip_blind_baseline=skip_blind_baseline,
+                )
+            except KeyboardInterrupt:
+                self._cancel_event.set()
+                raise
         if self.config.optimization_mode in {"description_only", "alternating_schema_description"}:
             try:
                 return self._run_alternating(
@@ -401,12 +430,18 @@ class ExperimentRunner:
             if len(blind_records) != 1:
                 raise ValueError("--blind-doc must identify one blind-test document in the frozen split.")
         self._log(f"[blind_test] documents={len(blind_records)} (smoke={smoke_blind_doc is not None})")
-        self._log(f"[blind_test] baseline extraction+judge for {len(blind_records)} documents...")
-        baseline_results = self.evaluate_prompt(
-            run_dir, "baseline", baseline_prompt, tuple(blind_records), schema, stage="blind_test"
-        )
-        checkpoint["stages"]["blind_baseline_complete"] = True
-        self._write_checkpoint(run_dir, checkpoint)
+        if skip_blind_baseline:
+            self._log("[blind_test] baseline skipped by --skip-blind-baseline")
+            baseline_results = {record.pair.document_id: None for record in blind_records}
+            checkpoint["stages"]["blind_baseline_skipped"] = True
+            self._write_checkpoint(run_dir, checkpoint)
+        else:
+            self._log(f"[blind_test] baseline extraction+judge for {len(blind_records)} documents...")
+            baseline_results = self.evaluate_prompt(
+                run_dir, "baseline", baseline_prompt, tuple(blind_records), schema, stage="blind_test"
+            )
+            checkpoint["stages"]["blind_baseline_complete"] = True
+            self._write_checkpoint(run_dir, checkpoint)
         self._log(f"[blind_test] optimized extraction+judge for {len(blind_records)} documents...")
         if optimized_dirty or checkpoint["stages"].get("blind_optimized_complete") is False:
             # The frozen best changed (resumed or recomputed training) or the
@@ -415,9 +450,77 @@ class ExperimentRunner:
             # repopulates valid hits by prompt fingerprint, so unchanged
             # best<->document pairs stay free.
             self._clear_optimized_blind_documents(run_dir, blind_records)
-        optimized_results = self.evaluate_prompt(
-            run_dir, "optimized", best_prompt, tuple(blind_records), schema, stage="blind_test"
-        )
+        optimized_attempt_scores = {record.pair.document_id: [] for record in blind_records}
+        optimized_selected_attempts = {record.pair.document_id: 1 for record in blind_records}
+        if retry_below_score is None:
+            optimized_results = self.evaluate_prompt(
+                run_dir, "optimized", best_prompt, tuple(blind_records), schema, stage="blind_test"
+            )
+            for document_id, result in optimized_results.items():
+                optimized_attempt_scores[document_id].append(result.score if result is not None else None)
+        else:
+            self._log(
+                f"[blind_test/optimized] adaptive score retry threshold={retry_below_score:.1f} max_attempts=3"
+            )
+            attempts: list[dict[str, JudgeResult | None]] = []
+            pending = tuple(blind_records)
+            for attempt in range(1, 4):
+                if not pending:
+                    break
+                stage = f"blind_test/optimized_adaptive_attempts/attempt-{attempt:03d}"
+                attempt_result = self.evaluate_prompt(
+                    run_dir, "optimized", best_prompt, pending, schema, stage=stage
+                )
+                attempts.append(attempt_result)
+                for record in pending:
+                    result = attempt_result.get(record.pair.document_id)
+                    optimized_attempt_scores[record.pair.document_id].append(
+                        result.score if result is not None else None
+                    )
+                if attempt < 3:
+                    pending = tuple(
+                        record for record in pending
+                        if (
+                            attempt_result.get(record.pair.document_id) is None
+                            or attempt_result[record.pair.document_id].score < retry_below_score
+                        )
+                    )
+
+            optimized_results = {}
+            final_documents_dir = run_dir / "blind_test" / "optimized" / "documents"
+            write_text(run_dir / "blind_test" / "optimized" / "prompt.txt", best_prompt)
+            for record in blind_records:
+                document_id = record.pair.document_id
+                available = [
+                    (result.score, index, result)
+                    for index, attempt_result in enumerate(attempts, start=1)
+                    if (result := attempt_result.get(document_id)) is not None
+                ]
+                if not available:
+                    optimized_results[document_id] = None
+                    continue
+                first = next((item for item in available if item[1] == 1), None)
+                second = next((item for item in available if item[1] == 2), None)
+                third = next((item for item in available if item[1] == 3), None)
+                if first is not None and first[0] >= retry_below_score:
+                    selected = first
+                elif second is not None and second[0] >= retry_below_score:
+                    selected = second
+                elif third is not None and third[0] >= retry_below_score:
+                    selected = third
+                else:
+                    by_score = sorted(available, key=lambda item: (item[0], item[1]))
+                    selected = by_score[(len(by_score) - 1) // 2]
+                _, selected_attempt, selected_result = selected
+                optimized_selected_attempts[document_id] = selected_attempt
+                optimized_results[document_id] = selected_result
+                source = (
+                    run_dir / "blind_test" / "optimized_adaptive_attempts" / f"attempt-{selected_attempt:03d}"
+                    / "optimized" / "documents" / document_id
+                )
+                destination = final_documents_dir / document_id
+                if source.is_dir():
+                    shutil.copytree(source, destination)
         checkpoint["stages"]["blind_optimized_complete"] = True
         self._write_checkpoint(run_dir, checkpoint)
         paired: list[dict[str, Any]] = []
@@ -439,6 +542,8 @@ class ExperimentRunner:
                     "optimized_status": optimized_status,
                     "baseline_validation_errors": self._validation_error_count(run_dir, "baseline", document_id),
                     "optimized_validation_errors": self._validation_error_count(run_dir, "optimized", document_id),
+                    "optimized_attempt_scores": optimized_attempt_scores[document_id],
+                    "optimized_selected_attempt": optimized_selected_attempts[document_id],
                 }
             )
             self._log(f"[blind_test]  {index}/{len(blind_records)} {document_id}: baseline={baseline_status} optimized={optimized_status}")
@@ -457,7 +562,13 @@ class ExperimentRunner:
         self._log(f"[done] run_dir={run_dir} valid_paired={valid_paired}/{len(paired)}")
         return run_dir
 
-    def run_blind_baseline_only(self, run_id: str, *, invocation_command: str | None = None) -> Path:
+    def run_blind_baseline_only(
+        self,
+        run_id: str,
+        *,
+        invocation_command: str | None = None,
+        retry_below_score: float | None = None,
+    ) -> Path:
         """Run one frozen direct-extraction baseline over the complete blind split."""
         run_dir = self.config.output_root / run_id
         if (run_dir / "blind_test" / "baseline" / "documents").exists():
@@ -476,16 +587,90 @@ class ExperimentRunner:
         baseline_prompt = self.config.initial_prompt_path.read_text(encoding="utf-8").strip()
         base_schema_dsl = reinforce_required_emission(json.loads(self.config.schema_path.read_text(encoding="utf-8")))
         self._log(f"[blind_baseline_only] direct extraction+judge for {len(split.blind_test)} documents...")
-        results = self.evaluate_prompt(
-            run_dir, "baseline", baseline_prompt, tuple(split.blind_test), schema,
-            stage="blind_test", schema_dsl=base_schema_dsl,
-        )
+        records = tuple(split.blind_test)
+        selected_attempts = {record.pair.document_id: 1 for record in records}
+        attempt_scores: dict[str, list[float | None]] = {
+            record.pair.document_id: [] for record in records
+        }
+        if retry_below_score is None:
+            results = self.evaluate_prompt(
+                run_dir, "baseline", baseline_prompt, records, schema,
+                stage="blind_test", schema_dsl=base_schema_dsl,
+            )
+            for document_id, result in results.items():
+                attempt_scores[document_id].append(result.score if result is not None else None)
+        else:
+            self._log(
+                f"[blind_baseline_only] adaptive score retry threshold={retry_below_score:.1f} max_attempts=3"
+            )
+            attempts: list[dict[str, JudgeResult | None]] = []
+            pending = records
+            for attempt in range(1, 4):
+                if not pending:
+                    break
+                stage = f"blind_test/adaptive_attempts/attempt-{attempt:03d}"
+                attempt_result = self.evaluate_prompt(
+                    run_dir, "baseline", baseline_prompt, pending, schema,
+                    stage=stage, schema_dsl=base_schema_dsl,
+                )
+                attempts.append(attempt_result)
+                for record in pending:
+                    result = attempt_result.get(record.pair.document_id)
+                    attempt_scores[record.pair.document_id].append(
+                        result.score if result is not None else None
+                    )
+                if attempt < 3:
+                    pending = tuple(
+                        record for record in pending
+                        if (
+                            attempt_result.get(record.pair.document_id) is None
+                            or attempt_result[record.pair.document_id].score < retry_below_score
+                        )
+                    )
+
+            results = {}
+            final_documents_dir = run_dir / "blind_test" / "baseline" / "documents"
+            write_text(run_dir / "blind_test" / "baseline" / "prompt.txt", baseline_prompt)
+            for record in records:
+                document_id = record.pair.document_id
+                available = [
+                    (result.score, index, result)
+                    for index, attempt_result in enumerate(attempts, start=1)
+                    if (result := attempt_result.get(document_id)) is not None
+                ]
+                if not available:
+                    results[document_id] = None
+                    continue
+                first = next((item for item in available if item[1] == 1), None)
+                second = next((item for item in available if item[1] == 2), None)
+                third = next((item for item in available if item[1] == 3), None)
+                if first is not None and first[0] >= retry_below_score:
+                    selected = first
+                elif second is not None and second[0] >= retry_below_score:
+                    selected = second
+                elif third is not None and third[0] >= retry_below_score:
+                    selected = third
+                else:
+                    by_score = sorted(available, key=lambda item: (item[0], item[1]))
+                    selected = by_score[(len(by_score) - 1) // 2]
+                _, selected_attempt, selected_result = selected
+                selected_attempts[document_id] = selected_attempt
+                results[document_id] = selected_result
+                source = (
+                    run_dir / "blind_test" / "adaptive_attempts" / f"attempt-{selected_attempt:03d}"
+                    / "baseline" / "documents" / document_id
+                )
+                destination = final_documents_dir / document_id
+                if source.is_dir():
+                    shutil.copytree(source, destination)
         documents = [
             {
                 "document_id": record.pair.document_id,
                 "score": results[record.pair.document_id].score if results[record.pair.document_id] is not None else None,
                 "status": "valid" if results[record.pair.document_id] is not None else "failed",
                 "validation_errors": self._validation_error_count(run_dir, "baseline", record.pair.document_id),
+                "attempt_scores": attempt_scores[record.pair.document_id],
+                "selected_attempt": selected_attempts[record.pair.document_id],
             }
             for record in split.blind_test
         ]
@@ -497,12 +682,132 @@ class ExperimentRunner:
             "failed_count": len(documents) - len(scores),
             "mean_score": sum(scores) / len(scores) if scores else None,
             "schema_invalid_count": sum(item["validation_errors"] > 0 for item in documents),
+            "retry_below_score": retry_below_score,
+            "total_extraction_attempts": sum(len(item["attempt_scores"]) for item in documents),
         }
         write_json(run_dir / "blind_baseline_documents.json", documents)
         write_json(run_dir / "blind_baseline_summary.json", summary)
         append_jsonl(run_dir / "meta" / "events.jsonl", {"event": "blind_baseline_only_complete", **summary})
         self._log(f"[blind_baseline_only] mean={_format_retry_metric(summary['mean_score'])} ({summary['valid_count']}/{summary['document_count']} docs)")
         self._log(f"[done] run_dir={run_dir} blind_baseline_only")
+        return run_dir
+
+    def reselect_score_retries(self, run_id: str, *, threshold: float) -> Path:
+        """Rebuild selected baseline/optimized artifacts from saved retry attempts without API calls."""
+        run_dir = self.config.output_root / run_id
+        if not run_dir.is_dir():
+            raise RuntimeError(f"Run directory does not exist: {run_dir}")
+        self._log_file = run_dir / "output.log"
+        layouts = (
+            ("baseline", run_dir / "blind_test" / "adaptive_attempts"),
+            ("optimized", run_dir / "blind_test" / "optimized_adaptive_attempts"),
+        )
+        rebuilt: dict[str, list[dict[str, Any]]] = {}
+        for arm, attempts_root in layouts:
+            if not attempts_root.is_dir():
+                continue
+            document_ids = sorted({
+                path.name
+                for attempt_dir in attempts_root.glob("attempt-*")
+                for path in (attempt_dir / arm / "documents").glob("*")
+                if path.is_dir()
+            })
+            selections: list[dict[str, Any]] = []
+            for document_id in document_ids:
+                available: list[tuple[float, int, Path]] = []
+                attempt_scores: list[float | None] = []
+                for attempt in range(1, 4):
+                    source = attempts_root / f"attempt-{attempt:03d}" / arm / "documents" / document_id
+                    result_path = source / "judge.result.json"
+                    score = None
+                    if result_path.is_file():
+                        try:
+                            value = json.loads(result_path.read_text(encoding="utf-8")).get("score")
+                            score = float(value) if isinstance(value, (int, float)) else None
+                        except (OSError, ValueError, json.JSONDecodeError):
+                            score = None
+                    attempt_scores.append(score)
+                    if score is not None:
+                        available.append((score, attempt, source))
+                if not available:
+                    continue
+                first = next((item for item in available if item[1] == 1), None)
+                second = next((item for item in available if item[1] == 2), None)
+                third = next((item for item in available if item[1] == 3), None)
+                if first is not None and first[0] >= threshold:
+                    selected = first
+                elif second is not None and second[0] >= threshold:
+                    selected = second
+                elif third is not None and third[0] >= threshold:
+                    selected = third
+                else:
+                    by_score = sorted(available, key=lambda item: (item[0], item[1]))
+                    selected = by_score[(len(by_score) - 1) // 2]
+                score, selected_attempt, source = selected
+                destination = run_dir / "blind_test" / arm / "documents" / document_id
+                if destination.exists():
+                    shutil.rmtree(destination)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(source, destination)
+                selections.append({
+                    "document_id": document_id,
+                    "score": score,
+                    "attempt_scores": attempt_scores,
+                    "selected_attempt": selected_attempt,
+                    "validation_errors": self._validation_error_count(run_dir, arm, document_id),
+                })
+            rebuilt[arm] = selections
+
+        if not rebuilt:
+            raise RuntimeError("No saved adaptive score-retry attempts were found for this run.")
+
+        if "baseline" in rebuilt and (run_dir / "blind_baseline_documents.json").is_file():
+            write_json(run_dir / "blind_baseline_documents.json", rebuilt["baseline"])
+            scores = [item["score"] for item in rebuilt["baseline"]]
+            summary_path = run_dir / "blind_baseline_summary.json"
+            summary = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.is_file() else {}
+            summary.update({
+                "document_count": len(rebuilt["baseline"]),
+                "valid_count": len(scores),
+                "failed_count": 0,
+                "mean_score": sum(scores) / len(scores) if scores else None,
+                "schema_invalid_count": sum(item["validation_errors"] > 0 for item in rebuilt["baseline"]),
+                "retry_below_score": threshold,
+                "total_extraction_attempts": sum(
+                    sum(score is not None for score in item["attempt_scores"]) for item in rebuilt["baseline"]
+                ),
+            })
+            write_json(summary_path, summary)
+
+        checkpoint = self._load_checkpoint(run_dir)
+        if checkpoint is not None and isinstance(checkpoint.get("paired"), list):
+            for arm, selections in rebuilt.items():
+                by_id = {item["document_id"]: item for item in selections}
+                for pair in checkpoint["paired"]:
+                    selected = by_id.get(pair.get("document_id"))
+                    if selected is None:
+                        continue
+                    pair[f"{arm}_score"] = selected["score"]
+                    pair[f"{arm}_status"] = "valid"
+                    pair[f"{arm}_validation_errors"] = selected["validation_errors"]
+                    pair[f"{arm}_attempt_scores"] = selected["attempt_scores"]
+                    pair[f"{arm}_selected_attempt"] = selected["selected_attempt"]
+            checkpoint["stages"]["report_complete"] = False
+            self._write_checkpoint(run_dir, checkpoint)
+
+        result_path = run_dir / "score_retry_reselection.json"
+        write_json(result_path, {"threshold": threshold, "arms": rebuilt})
+        append_jsonl(run_dir / "meta" / "events.jsonl", {
+            "event": "score_retry_reselection",
+            "threshold": threshold,
+            "arms": {arm: len(items) for arm, items in rebuilt.items()},
+        })
+        self._log(
+            f"[reselect_score_retries] threshold={threshold:.1f} "
+            + " ".join(f"{arm}={len(items)}" for arm, items in rebuilt.items())
+        )
+        if checkpoint is not None and checkpoint.get("stages", {}).get("primary_complete"):
+            self.report_only(run_id)
         return run_dir
 
     def report_only(self, run_id: str) -> Path:
@@ -603,9 +908,22 @@ class ExperimentRunner:
                 base_schema_dsl = json.loads((run_dir / "schemas" / "baseline-schema.json").read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as exc:
                 raise RuntimeError("Four-variable two-stage retry artifacts are missing.") from exc
+        elif mode == "gepa_manifest":
+            if not _training_complete_for_retry(checkpoint, mode):
+                raise RuntimeError("--retry-failed-primary requires a completed GEPA-manifest training checkpoint.")
+            base_schema_dsl = reinforce_required_emission(json.loads(self.config.schema_path.read_text(encoding="utf-8")))
+            selected_schema_dsl = base_schema_dsl
+            try:
+                baseline_evidence = (run_dir / "prompts" / "baseline.evidence.txt").read_text(encoding="utf-8").strip()
+                baseline_resolve = (run_dir / "prompts" / "baseline.resolve.txt").read_text(encoding="utf-8").strip()
+                best_evidence = (run_dir / "prompts" / "final-best.evidence.txt").read_text(encoding="utf-8").strip()
+                best_resolve = (run_dir / "prompts" / "final-best.resolve.txt").read_text(encoding="utf-8").strip()
+            except OSError as exc:
+                raise RuntimeError("GEPA-manifest retry artifacts are missing.") from exc
+            candidates = [CandidateSummary(**value) for value in checkpoint["training"]["candidates"]]
         elif _is_two_stage_mode(mode):
             alt = checkpoint.get("alternating")
-            if not isinstance(alt, dict) or not checkpoint["stages"].get("alternating_training_complete"):
+            if not isinstance(alt, dict) or not _training_complete_for_retry(checkpoint, mode):
                 raise RuntimeError("--retry-failed-primary requires a completed two-stage training checkpoint.")
             _schema_prompt, best_evidence, best_resolve, selected_schema_dsl, candidates = self._load_two_stage_checkpoint(run_dir, alt)
             try:
@@ -635,12 +953,12 @@ class ExperimentRunner:
             status_key = f"{arm}_status"
             for item in paired:
                 document_id = str(item["document_id"])
-                if item.get(status_key) != "valid":
+                artifacts_complete = self._blind_document_artifacts_complete(run_dir, arm, document_id)
+                if _primary_arm_requires_retry(item.get(status_key), artifacts_complete=artifacts_complete):
                     failed_by_arm[arm].append(document_id)
-                    recovery_reasons[arm][document_id] = "checkpoint_status_not_valid"
-                elif not self._blind_document_artifacts_complete(run_dir, arm, document_id):
-                    failed_by_arm[arm].append(document_id)
-                    recovery_reasons[arm][document_id] = "required_artifact_missing"
+                    recovery_reasons[arm][document_id] = (
+                        "checkpoint_status_not_valid" if item.get(status_key) != "valid" else "required_artifact_missing"
+                    )
         for arm, document_ids in failed_by_arm.items():
             unknown = sorted(set(document_ids) - set(by_id))
             if unknown:
@@ -680,7 +998,7 @@ class ExperimentRunner:
                 run_dir, "blind_test", "optimized", best_evidence, best_resolve, failed_optimized_records, selected_schema_dsl, evidence_routing_prompt=best_routing
             )
             validation_error_count = lambda arm, document_id: self._two_stage_validation_error_count(run_dir, f"blind_test/{arm}", document_id)
-        elif _is_two_stage_mode(mode):
+        elif mode == "gepa_manifest" or _is_two_stage_mode(mode):
             assert base_schema_dsl is not None and selected_schema_dsl is not None
             baseline_results = self._evaluate_two_stage(
                 run_dir, "blind_test", "baseline", baseline_evidence, baseline_resolve, failed_baseline_records, base_schema_dsl
@@ -748,7 +1066,7 @@ class ExperimentRunner:
             for path in (run_dir / "gold_audit").glob("*.json")
             if (result := self._load_cached_audit_result(path)) is not None
         ]
-        if mode in {"description_only", "alternating_schema_description", "two_stage_evidence_routing_schema_description"} or _is_two_stage_mode(mode):
+        if mode != "gepa_manifest" and (mode in {"description_only", "alternating_schema_description", "two_stage_evidence_routing_schema_description"} or _is_two_stage_mode(mode)):
             assert base_schema_dsl is not None and selected_schema_dsl is not None
             self.finish_alternating_report(run_dir, candidates, refreshed, audit_results, base_schema_dsl, selected_schema_dsl)
         else:
@@ -831,7 +1149,49 @@ class ExperimentRunner:
         else:
             write_json(manifest_path, manifest)
             write_json(meta_dir / "config.snapshot.json", snapshot_config(self.config))
+            self._snapshot_file_backed_prompts(meta_dir)
         return run_dir, split, dsl_to_json_schema(reinforce_required_emission(json.loads(schema_text)))
+
+    def _snapshot_file_backed_prompts(self, meta_dir: Path) -> None:
+        """Freeze every configured file-backed prompt when a run is created."""
+        prompt_attributes = (
+            "initial_prompt_path",
+            "extraction_system_prompt_path",
+            "judge_system_prompt_path",
+            "gold_audit_system_prompt_path",
+            "schema_description_system_prompt_path",
+            "schema_description_initial_prompt_path",
+            "evidence_initial_prompt_path",
+            "evidence_system_prompt_path",
+            "resolve_initial_prompt_path",
+            "resolve_system_prompt_path",
+            "coverage_plan_system_prompt_path",
+            "evidence_routing_initial_prompt_path",
+            "evidence_routing_system_prompt_path",
+        )
+        snapshot_dir = meta_dir / "frozen_protocol"
+        prompts_dir = snapshot_dir / "prompts"
+        prompts_dir.mkdir(parents=True, exist_ok=False)
+        entries: list[dict[str, Any]] = []
+        for attribute in prompt_attributes:
+            source = getattr(self.config, attribute, None)
+            if source is None:
+                continue
+            source = Path(source)
+            if not source.is_file():
+                raise RuntimeError(f"Configured prompt does not exist: {source}")
+            role = attribute.removesuffix("_path")
+            destination = prompts_dir / f"{role}{source.suffix or '.txt'}"
+            shutil.copyfile(source, destination)
+            entries.append(
+                {
+                    "role": role,
+                    "source_path": str(source),
+                    "snapshot_path": str(destination.relative_to(meta_dir.parent)),
+                    "sha256": sha256_file(destination),
+                }
+            )
+        write_json(snapshot_dir / "index.json", {"version": 1, "prompts": entries})
 
     def _prepare_retry_failed_primary(self, run_id: str) -> tuple[Path, DatasetSplit, dict[str, Any], dict[str, Any]]:
         """Validate immutable inputs while allowing only retry-budget drift."""
@@ -1168,6 +1528,29 @@ class ExperimentRunner:
             raw = result_path.read_text(encoding="utf-8")
             return parse_judge_result(raw, include_error_locations=self.config.include_error_locations, include_pdf=self.config.include_pdf)
         except (OSError, ValueError, json.JSONDecodeError):
+            return None
+
+    @staticmethod
+    def _load_completed_local_judge_result(document_dir: Path) -> JudgeResult | None:
+        """Load a result already validated and persisted by this run.
+
+        Execution-ablation resume is independent of shared-cache policy. Direct
+        deserialization also avoids reapplying a newer parser's formatting
+        restrictions to an artifact that was valid when it was written.
+        """
+        result_path = document_dir / "judge.result.json"
+        if not result_path.is_file():
+            return None
+        try:
+            value = json.loads(result_path.read_text(encoding="utf-8"))
+            return JudgeResult(
+                score=float(value["score"]),
+                optimization_feedback=str(value["optimization_feedback"]),
+                path_errors=tuple(PathError(**item) for item in value.get("path_errors", [])),
+                score_breakdown={str(key): float(score) for key, score in value.get("score_breakdown", {}).items()},
+                audit_details=dict(value.get("audit_details", {})),
+            )
+        except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
             return None
 
     def _resume_training(
@@ -1818,6 +2201,81 @@ class ExperimentRunner:
 
     # ---- two-stage evidence/resolve + schema-description mode ----
 
+    def _run_gepa_manifest(
+        self,
+        run_dir: Path,
+        split: DatasetSplit,
+        requested_rounds: int,
+        smoke_blind_doc: str | None,
+        smoke_training: bool,
+        checkpoint: dict[str, Any],
+        skip_blind_baseline: bool = False,
+    ) -> Path:
+        """Optimize fixed-schema manifest and resolution prompts with official GEPA."""
+        if checkpoint["stages"].get("training_complete"):
+            raise RuntimeError("gepa_manifest does not resume GEPA state; use a new run-id with --resume never.")
+        base_schema_dsl = reinforce_required_emission(json.loads(self.config.schema_path.read_text(encoding="utf-8")))
+        baseline_manifest = self.config.evidence_initial_prompt_path.read_text(encoding="utf-8").strip()
+        baseline_resolve = self.config.resolve_initial_prompt_path.read_text(encoding="utf-8").strip()
+        train_records = split.train if not smoke_training else split.train[:1]
+
+        def evaluate_training(manifest_prompt: str, resolve_prompt: str) -> dict[str, JudgeResult | None]:
+            raise RuntimeError("GEPA manifest evaluation requires a candidate id.")
+
+        def evaluate_candidate(candidate_id: str, manifest_prompt: str, resolve_prompt: str) -> dict[str, JudgeResult | None]:
+            return self._evaluate_two_stage(run_dir, "training", candidate_id, manifest_prompt, resolve_prompt, tuple(train_records), base_schema_dsl)
+
+        optimizer = self.optimizer_factory(evaluate_training)
+        (best_manifest, best_resolve), candidates = optimizer.optimize(
+            baseline_manifest, baseline_resolve, requested_rounds, evaluate_candidate=evaluate_candidate
+        )
+        prompts_dir = run_dir / "prompts"
+        write_text(prompts_dir / "baseline.evidence.txt", baseline_manifest)
+        write_text(prompts_dir / "baseline.resolve.txt", baseline_resolve)
+        write_text(prompts_dir / "final-best.evidence.txt", best_manifest)
+        write_text(prompts_dir / "final-best.resolve.txt", best_resolve)
+        checkpoint["training"] = {"candidates": [asdict(candidate) for candidate in candidates]}
+        checkpoint["stages"]["training_complete"] = True
+        checkpoint["max_iterations_used"] = requested_rounds
+        self._write_checkpoint(run_dir, checkpoint)
+
+        blind_records = list(split.blind_test)
+        if smoke_blind_doc:
+            blind_records = [record for record in blind_records if record.pair.document_id == smoke_blind_doc]
+            if len(blind_records) != 1:
+                raise ValueError("--blind-doc must identify one blind-test document in the frozen split.")
+        if skip_blind_baseline:
+            self._log("[blind_test] baseline skipped by --skip-blind-baseline")
+            baseline_results: dict[str, JudgeResult | None] = {}
+        else:
+            baseline_results = self._evaluate_two_stage(run_dir, "blind_test", "baseline", baseline_manifest, baseline_resolve, tuple(blind_records), base_schema_dsl)
+        optimized_results = self._evaluate_two_stage(run_dir, "blind_test", "optimized", best_manifest, best_resolve, tuple(blind_records), base_schema_dsl)
+        paired: list[dict[str, Any]] = []
+        for index, record in enumerate(blind_records, start=1):
+            document_id = record.pair.document_id
+            baseline = baseline_results.get(document_id)
+            optimized = optimized_results.get(document_id)
+            self._log(f"[blind_test] {index}/{len(blind_records)} {document_id}: 基线={baseline.score if baseline else '?'} 优化={optimized.score if optimized else '?'}")
+            paired.append({
+                "document_id": document_id,
+                "baseline_score": baseline.score if baseline else None,
+                "optimized_score": optimized.score if optimized else None,
+                "baseline_status": "skipped" if skip_blind_baseline else ("valid" if baseline else "failed"),
+                "optimized_status": "valid" if optimized else "failed",
+                "baseline_validation_errors": None if skip_blind_baseline else self._two_stage_validation_error_count(run_dir, "blind_test/baseline", document_id),
+                "optimized_validation_errors": self._two_stage_validation_error_count(run_dir, "blind_test/optimized", document_id),
+            })
+        audit_records = tuple(train_records) + tuple(blind_records)
+        audit_results = self.run_gold_audit(run_dir, audit_records, dsl_to_json_schema(base_schema_dsl)) if self.config.gold_audit_enabled else []
+        checkpoint["paired"] = paired
+        checkpoint["stages"].update({"blind_baseline_complete": not skip_blind_baseline, "blind_optimized_complete": True, "primary_complete": True})
+        self._write_checkpoint(run_dir, checkpoint)
+        self.finish_report(run_dir, candidates, paired, audit_results)
+        checkpoint["stages"]["report_complete"] = True
+        self._write_checkpoint(run_dir, checkpoint)
+        self._log(f"[done] run_dir={run_dir} valid_paired={sum(1 for item in paired if item['baseline_status'] == 'valid' and item['optimized_status'] == 'valid')}/{len(paired)}")
+        return run_dir
+
     def _run_two_stage(
         self,
         run_dir: Path,
@@ -2071,6 +2529,10 @@ class ExperimentRunner:
         records: tuple[Any, ...],
         schema_dsl: dict[str, Any],
         evidence_routing_prompt: str | None = None,
+        batch_size: int = 5,
+        stage1_overrides: dict[str, dict[str, Any]] | None = None,
+        reuse_local_results: bool = False,
+        use_shared_cache: bool = True,
     ) -> dict[str, JudgeResult | None]:
         """Run two-stage extraction + judge for each record, persisting per-doc artifacts.
 
@@ -2112,12 +2574,26 @@ class ExperimentRunner:
             document_id = record.pair.document_id
             document_dir = phase_dir / "documents" / document_id
             document_dir.mkdir(parents=True, exist_ok=True)
-            cached_result = self._load_cached_judge_result(document_dir) if self.config.cache_enabled else None
+            cached_result = None
+            if self.config.cache_enabled and use_shared_cache:
+                cached_result = self._load_cached_judge_result(document_dir)
+            elif reuse_local_results:
+                cached_result = self._load_completed_local_judge_result(document_dir)
             if cached_result is not None:
                 return document_id, cached_result
-            extraction_inputs = self._two_stage_cache_inputs(record, schema, evidence_prompt, resolve_prompt, schema_dsl, evidence_routing_prompt)
+            stage1_override = (stage1_overrides or {}).get(document_id)
+            extraction_inputs = self._two_stage_cache_inputs(
+                record,
+                schema,
+                evidence_prompt,
+                resolve_prompt,
+                schema_dsl,
+                evidence_routing_prompt,
+                batch_size=batch_size,
+                stage1_override=stage1_override,
+            )
             cache = SharedCache(self.config.output_root / "_cache", self.config.extractor.model)
-            cached_extraction = cache.get("extraction_two_stage", extraction_inputs) if self.config.cache_enabled else None
+            cached_extraction = cache.get("extraction_two_stage", extraction_inputs) if self.config.cache_enabled and use_shared_cache else None
             prediction: PredictionArtifact | None = None
             metadata: dict[str, Any] = {}
             if cached_extraction is not None:
@@ -2136,6 +2612,8 @@ class ExperimentRunner:
                         resolve_prompt=resolve_prompt,
                         coverage_plan_system_prompt=coverage_plan_system_prompt,
                         evidence_routing_prompt=evidence_routing_prompt,
+                        batch_size=batch_size,
+                        stage1_override=stage1_override,
                         max_parallel_batches=self.config.max_parallel_calls,
                         api_call_semaphore=self._two_stage_api_semaphore,
                         cancel_event=self._cancel_event,
@@ -2192,7 +2670,7 @@ class ExperimentRunner:
                     metadata["evidence_routing"] = metadata["coverage_plan"]
                 if self._cancel_event.is_set():
                     raise RunCancelled("run cancelled after two-stage extraction")
-                if self.config.cache_enabled:
+                if self.config.cache_enabled and use_shared_cache:
                     cache_entry = cache.put(
                         "extraction_two_stage",
                         extraction_inputs,
@@ -2215,7 +2693,7 @@ class ExperimentRunner:
                 )
             judge_inputs = self._judge_cache_inputs(record, schema, prediction, schema_dsl=schema_dsl)
             judge_cache = SharedCache(self.config.output_root / "_cache", self.config.judge.model)
-            cached_judge = judge_cache.get("judge", judge_inputs) if self.config.cache_enabled else None
+            cached_judge = judge_cache.get("judge", judge_inputs) if self.config.cache_enabled and use_shared_cache else None
             if cached_judge is not None:
                 try:
                     result = parse_judge_result(
@@ -2274,7 +2752,7 @@ class ExperimentRunner:
             if self._cancel_event.is_set():
                 raise RunCancelled("run cancelled after judging")
             if result is not None:
-                if self.config.cache_enabled:
+                if self.config.cache_enabled and use_shared_cache:
                     cache_entry = judge_cache.put("judge", judge_inputs, asdict(result), {}, source_run_id=run_dir.name)
                     cache_provenance = {"cache_hit": False, "cache_fingerprint": cache_entry["fingerprint"]}
                 else:
@@ -2330,11 +2808,23 @@ class ExperimentRunner:
         raise RuntimeError("Two-stage mode requires the raw ResponsesPdfClient (with complete_pdf_json) as the extractor.")
 
     def _two_stage_cache_inputs(
-        self, record: Any, schema: dict[str, Any], evidence_prompt: str, resolve_prompt: str, schema_dsl: dict[str, Any], evidence_routing_prompt: str | None = None
+        self,
+        record: Any,
+        schema: dict[str, Any],
+        evidence_prompt: str,
+        resolve_prompt: str,
+        schema_dsl: dict[str, Any],
+        evidence_routing_prompt: str | None = None,
+        *,
+        batch_size: int = 5,
+        stage1_override: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return {
             "stage": "two_stage",
+            "identity_manifest_dedup_version": "ignore-source-position-v2",
             "optimization_mode": self.config.optimization_mode,
+            "resolution_batch_size": batch_size,
+            "stage1_override_sha256": sha256_json(stage1_override) if stage1_override is not None else None,
             "pdf_sha256": record.pair.pdf_sha256,
             "raw_schema_sha256": sha256_json(schema_dsl),
             "converted_schema_sha256": sha256_json(schema),
@@ -2653,6 +3143,254 @@ class ExperimentRunner:
         self._write_checkpoint(run_dir, checkpoint)
         self._log(f"[done] run_dir={run_dir} valid_paired={sum(1 for item in paired if item["baseline_status"] == "valid" and item["optimized_status"] == "valid")}/{len(paired)}")
         return run_dir
+
+    def run_execution_ablation(self, run_id: str) -> Path:
+        """Compare unbounded and bounded resolution using the same stage-1 manifest.
+
+        This is an inference-only ablation over the frozen best two-stage state.
+        For each blind document, the unbounded arm discovers the manifest once;
+        the bounded arm then reuses that exact manifest and only changes how its
+        identities are partitioned for stage-2 resolution.
+        """
+        run_dir, split, _, _ = self._prepare_retry_failed_primary(run_id)
+        self._log_file = run_dir / "output.log"
+        self._cancel_event.clear()
+        self._two_stage_api_semaphore = threading.BoundedSemaphore(max(1, self.config.max_parallel_calls))
+        checkpoint = self._load_checkpoint(run_dir)
+        if checkpoint is None or not isinstance(checkpoint.get("alternating"), dict):
+            raise RuntimeError("--execution-ablation requires a completed two-stage training checkpoint.")
+
+        alt = checkpoint["alternating"]
+        evidence_routing_prompt: str | None = None
+        if self.config.optimization_mode == "two_stage_evidence_routing_schema_description":
+            _, evidence_prompt, evidence_routing_prompt, resolve_prompt, selected_dsl, candidates = (
+                self._load_evidence_routing_two_stage_checkpoint(run_dir, alt)
+            )
+        else:
+            _, evidence_prompt, resolve_prompt, selected_dsl, candidates = self._load_two_stage_checkpoint(run_dir, alt)
+        best = _select_best_alternating_candidate(candidates)
+        if best is None:
+            raise RuntimeError("--execution-ablation cannot identify the best frozen two-stage candidate.")
+
+        records = split.blind_test
+        self._log(
+            f"[execution_ablation] run_id={run_id} frozen={best.candidate_id} documents={len(records)} "
+            "comparison=manifest_unbounded_vs_manifest_bounded_5"
+        )
+        unbounded_results = self._evaluate_two_stage(
+            run_dir,
+            "execution_ablation",
+            "manifest_unbounded",
+            evidence_prompt,
+            resolve_prompt,
+            records,
+            selected_dsl,
+            evidence_routing_prompt=evidence_routing_prompt,
+            batch_size=1_000_000,
+            reuse_local_results=True,
+        )
+
+        stage1_overrides: dict[str, dict[str, Any]] = {}
+        missing_manifests: list[str] = []
+        for record in records:
+            document_id = record.pair.document_id
+            metadata_path = (
+                run_dir
+                / "execution_ablation"
+                / "manifest_unbounded"
+                / "documents"
+                / document_id
+                / "extraction.metadata.json"
+            )
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                stage1_output = metadata["stage1_output"]
+                if not isinstance(stage1_output, dict):
+                    raise TypeError
+            except (OSError, KeyError, TypeError, json.JSONDecodeError):
+                missing_manifests.append(document_id)
+            else:
+                stage1_overrides[document_id] = stage1_output
+        if missing_manifests:
+            self._log(
+                "[execution_ablation] warning: bounded arm will skip documents without a reusable "
+                f"unbounded manifest: {', '.join(missing_manifests)}"
+            )
+        bounded_records = tuple(
+            record for record in records if record.pair.document_id in stage1_overrides
+        )
+
+        bounded_results = self._evaluate_two_stage(
+            run_dir,
+            "execution_ablation",
+            "manifest_bounded_5",
+            evidence_prompt,
+            resolve_prompt,
+            bounded_records,
+            selected_dsl,
+            evidence_routing_prompt=evidence_routing_prompt,
+            batch_size=5,
+            stage1_overrides=stage1_overrides,
+            reuse_local_results=True,
+        )
+
+        def mean_score(results: dict[str, JudgeResult | None]) -> float | None:
+            scores = [result.score for result in results.values() if result is not None]
+            return sum(scores) / len(scores) if scores else None
+
+        paired = []
+        for record in records:
+            document_id = record.pair.document_id
+            unbounded = unbounded_results.get(document_id)
+            bounded = bounded_results.get(document_id)
+            if unbounded is not None and bounded is not None:
+                paired.append((document_id, unbounded.score, bounded.score))
+        deltas = [bounded - unbounded for _, unbounded, bounded in paired]
+        summary = {
+            "source_run_id": run_id,
+            "frozen_candidate_id": best.candidate_id,
+            "comparison": "same_manifest_unbounded_vs_bounded_5",
+            "document_count": len(records),
+            "paired_documents": len(paired),
+            "documents_without_reusable_manifest": missing_manifests,
+            "manifest_unbounded": {
+                "valid_documents": sum(result is not None for result in unbounded_results.values()),
+                "mean_score": mean_score(unbounded_results),
+            },
+            "manifest_bounded_5": {
+                "valid_documents": sum(result is not None for result in bounded_results.values()),
+                "mean_score": mean_score(bounded_results),
+            },
+            "mean_paired_delta": sum(deltas) / len(deltas) if deltas else None,
+            "wins_ties_losses": {
+                "wins": sum(delta > 0 for delta in deltas),
+                "ties": sum(delta == 0 for delta in deltas),
+                "losses": sum(delta < 0 for delta in deltas),
+            },
+            "documents": [
+                {
+                    "document_id": document_id,
+                    "manifest_unbounded_score": unbounded,
+                    "manifest_bounded_5_score": bounded,
+                    "delta": bounded - unbounded,
+                }
+                for document_id, unbounded, bounded in paired
+            ],
+        }
+        output_dir = run_dir / "execution_ablation"
+        write_json(output_dir / "summary.json", summary)
+        append_jsonl(
+            run_dir / "meta" / "events.jsonl",
+            {
+                "event": "execution_ablation_complete",
+                "frozen_candidate_id": best.candidate_id,
+                "paired_documents": len(paired),
+                "mean_paired_delta": summary["mean_paired_delta"],
+            },
+        )
+        self._log(
+            f"[execution_ablation] paired={len(paired)}/{len(records)} "
+            f"unbounded_mean={_format_retry_metric(summary['manifest_unbounded']['mean_score'])} "
+            f"bounded_5_mean={_format_retry_metric(summary['manifest_bounded_5']['mean_score'])} "
+            f"mean_paired_delta={_format_retry_metric(summary['mean_paired_delta'])}"
+        )
+        return output_dir
+
+    def run_stage2_replay(
+        self,
+        run_id: str,
+        label: str,
+        *,
+        document_ids: tuple[str, ...] | None = None,
+    ) -> Path:
+        """Re-run bounded Stage 2 from manifests saved by execution ablation."""
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", label):
+            raise ValueError("Stage-2 replay label must contain only letters, digits, '.', '_' or '-'.")
+        run_dir, split, _, _ = self._prepare_retry_failed_primary(run_id)
+        self._log_file = run_dir / "output.log"
+        self._cancel_event.clear()
+        self._two_stage_api_semaphore = threading.BoundedSemaphore(max(1, self.config.max_parallel_calls))
+        checkpoint = self._load_checkpoint(run_dir)
+        if checkpoint is None or not isinstance(checkpoint.get("alternating"), dict):
+            raise RuntimeError("--stage2-replay requires a completed two-stage training checkpoint.")
+
+        alt = checkpoint["alternating"]
+        evidence_routing_prompt: str | None = None
+        if self.config.optimization_mode == "two_stage_evidence_routing_schema_description":
+            _, evidence_prompt, evidence_routing_prompt, resolve_prompt, selected_dsl, candidates = (
+                self._load_evidence_routing_two_stage_checkpoint(run_dir, alt)
+            )
+        else:
+            _, evidence_prompt, resolve_prompt, selected_dsl, candidates = self._load_two_stage_checkpoint(run_dir, alt)
+        best = _select_best_alternating_candidate(candidates)
+        if best is None:
+            raise RuntimeError("--stage2-replay cannot identify the best frozen two-stage candidate.")
+
+        requested = set(document_ids) if document_ids else None
+        records = tuple(
+            record for record in split.blind_test
+            if requested is None or record.pair.document_id in requested
+        )
+        missing_requested = sorted((requested or set()) - {record.pair.document_id for record in records})
+        if missing_requested:
+            raise ValueError(f"Requested Stage-2 replay documents are not in the blind split: {missing_requested}")
+
+        source_root = run_dir / "execution_ablation" / "manifest_unbounded" / "documents"
+        stage1_overrides: dict[str, dict[str, Any]] = {}
+        missing_manifests: list[str] = []
+        for record in records:
+            document_id = record.pair.document_id
+            metadata_path = source_root / document_id / "extraction.metadata.json"
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                stage1_output = metadata["stage1_output"]
+                if not isinstance(stage1_output, dict):
+                    raise TypeError
+            except (OSError, KeyError, TypeError, json.JSONDecodeError):
+                missing_manifests.append(document_id)
+            else:
+                stage1_overrides[document_id] = stage1_output
+        if missing_manifests:
+            raise RuntimeError(
+                "Stage-2 replay source manifests are missing or invalid for: "
+                + ", ".join(missing_manifests)
+            )
+
+        self._log(
+            f"[stage2_replay] run_id={run_id} label={label} frozen={best.candidate_id} "
+            f"documents={len(records)} source=execution_ablation/manifest_unbounded batch_size=5"
+        )
+        results = self._evaluate_two_stage(
+            run_dir,
+            "execution_ablation/stage2_replay",
+            label,
+            evidence_prompt,
+            resolve_prompt,
+            records,
+            selected_dsl,
+            evidence_routing_prompt=evidence_routing_prompt,
+            batch_size=5,
+            stage1_overrides=stage1_overrides,
+            reuse_local_results=True,
+            use_shared_cache=False,
+        )
+        scores = [result.score for result in results.values() if result is not None]
+        output_dir = run_dir / "execution_ablation" / "stage2_replay" / label
+        write_json(output_dir / "summary.json", {
+            "source_run_id": run_id,
+            "label": label,
+            "frozen_candidate_id": best.candidate_id,
+            "manifest_source": "execution_ablation/manifest_unbounded",
+            "historical_manifest_replay": False,
+            "batch_size": 5,
+            "requested_document_ids": list(document_ids) if document_ids else None,
+            "completed_documents": len(scores),
+            "mean_score": sum(scores) / len(scores) if scores else None,
+        })
+        mean_text = f"{sum(scores) / len(scores):.1f}" if scores else "none"
+        self._log(f"[stage2_replay] completed={len(scores)}/{len(records)} mean={mean_text}")
+        return output_dir
+
     def _load_best_alternating_results(
         self,
         run_dir: Path,

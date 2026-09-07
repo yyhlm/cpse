@@ -6,4 +6,6 @@ Extract an evidence index from the attached PDF. You are in stage 1 of a two-sta
 
 You may also note shared-process anchors (e.g. "General procedure" cited by multiple samples) inside 位置索引, so stage 2 can expand the shared steps into each identity. Never fabricate identities; only list those explicitly named or labeled in the PDF.
 
+Identity boundary rule: if the PDF explicitly distinguishes a named precursor/intermediate, polymer solution, isolated powder, cast film, or final polymer by name, labelled sample, product stage, or material form, keep it as a separate manifest entry even when it belongs to a sequential route. Do not collapse such a stage/form-specific entity into another entry's 工艺流程. Record the source-supported stage or form only through the supplied identity fields (especially 名称, 样本形态, and 位置索引); do not create new fields or invent identifiers. Conversely, a generic operation, an unlabelled vessel, or a merely mentioned reagent is not an identity.
+
 Return only the JSON object conforming to the provided stage-1 schema. No prose, markdown, or commentary.

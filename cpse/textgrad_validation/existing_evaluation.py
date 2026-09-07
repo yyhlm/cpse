@@ -40,7 +40,16 @@ def _mean(values: list[float]) -> float | None:
     return sum(values) / len(values) if values else None
 
 
-def run_judge_only(config, run_id, judge, *, label, force=False):
+def run_judge_only(
+    config,
+    run_id,
+    judge,
+    *,
+    label,
+    force=False,
+    arms: tuple[str, ...] | None = None,
+    document_ids: tuple[str, ...] | None = None,
+):
     """Re-score frozen blind predictions into an isolated, resumable namespace."""
     if not isinstance(label, str) or not _SAFE_LABEL.fullmatch(label):
         raise ValueError("Judge-only label must contain only letters, digits, '.', '_' or '-'.")
@@ -58,16 +67,23 @@ def run_judge_only(config, run_id, judge, *, label, force=False):
         with log_path.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
 
-    arm_documents: dict[str, list[Path]] = {}
-    for arm in ("baseline", "optimized"):
+    selected_arms = arms or ("baseline", "optimized")
+    invalid_arms = sorted(set(selected_arms) - {"baseline", "optimized"})
+    if invalid_arms:
+        raise ValueError(f"Unsupported Judge-only arms: {invalid_arms}")
+    selected_ids = set(document_ids) if document_ids else None
+    arm_documents: dict[str, list[Path]] = {"baseline": [], "optimized": []}
+    for arm in selected_arms:
         documents_root = blind_root / arm / "documents"
-        arm_documents[arm] = sorted(path for path in documents_root.iterdir() if path.is_dir()) if documents_root.is_dir() else []
+        documents = sorted(path for path in documents_root.iterdir() if path.is_dir()) if documents_root.is_dir() else []
+        arm_documents[arm] = [path for path in documents if selected_ids is None or path.name in selected_ids]
     log(
         f"[judge_only] label={label} model={config.judge.model} force={force} "
-        f"baseline={len(arm_documents['baseline'])} optimized={len(arm_documents['optimized'])}"
+        f"arms={','.join(selected_arms)} baseline={len(arm_documents['baseline'])} "
+        f"optimized={len(arm_documents['optimized'])}"
     )
     by_document: dict[str, dict[str, float]] = {}
-    for arm in ("baseline", "optimized"):
+    for arm in selected_arms:
         documents_root = blind_root / arm / "documents"
         if not documents_root.is_dir():
             log(f"[judge_only/{arm}] skipped: documents directory not found")
@@ -145,6 +161,8 @@ def run_judge_only(config, run_id, judge, *, label, force=False):
         rows.append({"document_id": document_id, "baseline_score": baseline, "optimized_score": optimized, "delta": delta})
     paired = [row for row in rows if row["delta"] is not None]
     deltas = [float(row["delta"]) for row in paired]
+    baseline_scores = [float(row["baseline_score"]) for row in rows if row["baseline_score"] is not None]
+    optimized_scores = [float(row["optimized_score"]) for row in rows if row["optimized_score"] is not None]
     summary = {
         "source_run_id": run_id,
         "judge_label": label,
@@ -152,9 +170,13 @@ def run_judge_only(config, run_id, judge, *, label, force=False):
         "judge_prompt_sha256": sha256_file(config.judge_system_prompt_path),
         "include_pdf": config.include_pdf,
         "include_error_locations": config.include_error_locations,
+        "selected_arms": list(selected_arms),
+        "selected_document_ids": list(document_ids) if document_ids else None,
+        "baseline_document_count": len(baseline_scores),
+        "optimized_document_count": len(optimized_scores),
         "paired_count": len(paired),
-        "baseline_mean": _mean([float(row["baseline_score"]) for row in paired]),
-        "optimized_mean": _mean([float(row["optimized_score"]) for row in paired]),
+        "baseline_mean": _mean(baseline_scores),
+        "optimized_mean": _mean(optimized_scores),
         "mean_paired_delta": _mean(deltas),
         "wins": sum(value > 0 for value in deltas),
         "ties": sum(value == 0 for value in deltas),

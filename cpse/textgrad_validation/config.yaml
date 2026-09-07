@@ -1,0 +1,58 @@
+paths:
+  data_dir: test/data
+  schema_path: test/schema.json
+  output_root: test/results
+  prompt_dir: test/textgrad_validation/prompts
+roles:
+  extractor:
+    model: gpt-5.6-terra
+    temperature: 0
+    max_output_tokens: null
+    timeout_seconds: 300
+    max_retries: 3
+    use_instructions: false
+    api_protocol: responses
+    base_url: https://api.example.com/v1
+    api_key_env: MODEL_API_KEY
+    proxy: null
+  judge:
+    model: gpt-5.6-terra
+    temperature: 0
+    max_output_tokens: null
+    timeout_seconds: 180
+    max_retries: 3
+    use_instructions: false
+    api_protocol: responses
+    base_url: https://api.example.com/v1
+    api_key_env: MODEL_API_KEY
+    proxy: null
+  gold_audit:
+    model: gpt-5.6-terra
+    temperature: 0
+    max_output_tokens: null
+    timeout_seconds: 300
+    max_retries: 3
+    use_instructions: false
+    api_protocol: responses
+    base_url: https://api.example.com/v1
+    api_key_env: MODEL_API_KEY
+    proxy: null
+evaluation:
+  include_pdf: true
+  include_error_locations: false
+optimization_mode: alternating_schema_description
+cache:
+  enabled: true
+schema_patch:
+  policy_version: '1'
+gold_audit:
+  enabled: false
+max_iterations: 5
+max_parallel_calls: 6
+train_count: 3
+train_ids:
+- 00bc2129168630da34d8db8bb410d2fd
+- 25ef8d4fb98fe03bcfb90fa028a5338a
+- 0ba22b43954bb87b8ce7bf88a7559d3c
+split_algorithm_version: structural-v1
+request_format_version: responses-pdf-v1

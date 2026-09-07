@@ -39,6 +39,16 @@ add, remove, rename, retype, or relocate fields. Preserve JSON-only output requi
 Return exactly one JSON object with the requested component names as string values.
 """
 
+_GEPA_MANIFEST_PROPOSAL_SYSTEM_PROMPT = """You are the proposal component of GEPA.
+Jointly revise two prompts in a manifest-conditioned scientific-PDF extraction pipeline:
+manifest_prompt discovers document metadata and a complete ordered material-identity manifest;
+resolve_prompt converts bounded, non-overlapping manifest slices into full nested records.
+Use the reflective evaluation records to learn reusable rules, preserve each prompt's role, and do
+not memorize paper-specific names, identifiers, values, JSONPaths, or phrases. The schema and all
+field descriptions are immutable. Return exactly one JSON object with the requested component
+names as string values.
+"""
+
 
 def _feedback_for_optimizer(feedback: str) -> str:
     """Return the judge feedback for the optimizer: the concrete CURRENT_ERROR
@@ -527,6 +537,94 @@ class GepaPromptOptimizer:
             "Official GEPA owns its candidate/Pareto state; extend max_iterations with a new run-id instead of "
             "the legacy single-mode optimize_resume path."
         )
+
+
+class GepaManifestOptimizer:
+    """Official GEPA search over manifest-construction and record-resolution prompts."""
+
+    def __init__(self, *, client: Any, evaluate_prompts: Callable[[str, str], dict[str, JudgeResult | None]], optimize_fn: Callable[..., Any] | None = None):
+        self._client = client
+        self._evaluate_prompts = evaluate_prompts
+        self._optimize_fn = optimize_fn
+
+    def optimize(self, initial_manifest_prompt: str, initial_resolve_prompt: str, max_iterations: int, *, evaluate_candidate: Callable[[str, str, str], dict[str, JudgeResult | None]] | None = None) -> tuple[tuple[str, str], list[CandidateSummary]]:
+        seed = {"manifest_prompt": initial_manifest_prompt, "resolve_prompt": initial_resolve_prompt}
+        results_by_key: dict[str, dict[str, JudgeResult | None]] = {}
+        ids_by_key: dict[str, str] = {}
+
+        def key(candidate: dict[str, Any]) -> str:
+            return json.dumps({name: str(candidate[name]) for name in ("manifest_prompt", "resolve_prompt")}, ensure_ascii=False, sort_keys=True)
+
+        def evaluate_one(candidate: dict[str, Any]) -> dict[str, JudgeResult | None]:
+            candidate_key = key(candidate)
+            candidate_id = ids_by_key.setdefault(candidate_key, f"candidate-{len(ids_by_key):03d}")
+            if candidate_key not in results_by_key:
+                manifest_prompt = str(candidate["manifest_prompt"])
+                resolve_prompt = str(candidate["resolve_prompt"])
+                results_by_key[candidate_key] = (
+                    evaluate_candidate(candidate_id, manifest_prompt, resolve_prompt)
+                    if evaluate_candidate is not None
+                    else self._evaluate_prompts(manifest_prompt, resolve_prompt)
+                )
+            return results_by_key[candidate_key]
+
+        baseline_results = evaluate_one(seed)
+        document_ids = sorted(baseline_results)
+        try:
+            from gepa import EvaluationBatch, optimize as official_optimize
+        except ImportError as exc:
+            raise RuntimeError("gepa_manifest requires optional dependency gepa==0.1.4") from exc
+        outer = self
+
+        class Adapter:
+            def evaluate(self, batch, candidate, capture_traces=False):
+                results = evaluate_one(candidate)
+                outputs, scores, traces = [], [], []
+                for document_id in batch:
+                    result = results.get(document_id)
+                    feedback = result.optimization_feedback if result is not None else "evaluation failed"
+                    outputs.append(feedback)
+                    scores.append((result.score / 100.0) if result is not None else 0.0)
+                    if capture_traces:
+                        traces.append({"document_id": document_id, "score": result.score if result else 0.0, "score_breakdown": (result.score_breakdown or {}) if result else {}, "feedback": feedback})
+                return EvaluationBatch(outputs=outputs, scores=scores, trajectories=traces if capture_traces else None, num_metric_calls=len(batch))
+
+            def make_reflective_dataset(self, candidate, eval_batch, components_to_update):
+                records = [{"Inputs": {"document_id": trace["document_id"]}, "Generated Outputs": {"score": trace["score"], "score_breakdown": trace["score_breakdown"]}, "Feedback": trace["feedback"]} for trace in (eval_batch.trajectories or [])]
+                return {component: records for component in components_to_update}
+
+            def propose_new_texts(self, candidate, reflective_dataset, components_to_update):
+                with api_operation("optimizer_proposal"):
+                    raw = outer._client.complete_json(system_prompt=_GEPA_MANIFEST_PROPOSAL_SYSTEM_PROMPT, payload={"candidate": {name: str(candidate[name]) for name in components_to_update}, "reflective_dataset": {name: list(reflective_dataset.get(name, ())) for name in components_to_update}, "components_to_update": list(components_to_update)})
+                value = json.loads(raw)
+                if not isinstance(value, dict):
+                    raise ValueError("GEPA proposal must be a JSON object.")
+                proposals = {component: str(value.get(component, "")).strip() for component in components_to_update}
+                missing = next((name for name, value in proposals.items() if not value), None)
+                if missing is not None:
+                    raise ValueError(f"GEPA proposal must contain a non-empty {missing!r} value.")
+                return proposals
+
+        def reflection_lm(prompt):
+            with api_operation("optimizer_reflection"):
+                return outer._client.complete_text(system_prompt=None, prompt=prompt, json_mode=False)
+
+        result = (self._optimize_fn or official_optimize)(seed_candidate=seed, trainset=document_ids, valset=document_ids, adapter=Adapter(), reflection_lm=reflection_lm, candidate_selection_strategy="pareto", frontier_type="instance", reflection_minibatch_size=len(document_ids), max_metric_calls=(max_iterations + 1) * len(document_ids), acceptance_criterion="improvement_or_equal", display_progress_bar=False, cache_evaluation=False, seed=0)
+        summaries: list[CandidateSummary] = []
+        best_mean: float | None = None
+        for index, candidate in enumerate(result.candidates):
+            candidate_key = key(candidate)
+            candidate_results = evaluate_one(candidate)
+            mean_score = _mean_score(candidate_results)
+            parent_indexes = result.parents[index] if index < len(result.parents) else []
+            parent_index = next((item for item in parent_indexes if item is not None), None)
+            parent_id = None if parent_index is None else ids_by_key[key(result.candidates[parent_index])]
+            accepted = mean_score is not None and (best_mean is None or mean_score >= best_mean)
+            summaries.append(CandidateSummary(candidate_id=ids_by_key[candidate_key], prompt_hash=sha256_json(json.loads(candidate_key)), parent_candidate_id=parent_id, document_scores={doc_id: (item.score if item else None) for doc_id, item in candidate_results.items()}, mean_score=mean_score, accepted=accepted, decision_reason="baseline" if index == 0 else ("non-decreasing mean" if accepted else "lower mean")))
+            if accepted:
+                best_mean = mean_score
+        best = result.best_candidate
+        return (str(best["manifest_prompt"]).strip(), str(best["resolve_prompt"]).strip()), summaries
 
 
 class MiproV2InstructionOptimizer:

@@ -52,17 +52,21 @@ def load_config(path: Path, project_root: Path | None = None) -> ExperimentConfi
     if not isinstance(paths, dict) or not isinstance(roles, dict):
         raise ValueError("Config requires paths and roles objects.")
 
-    prompt_dir = _resolve(base, paths.get("prompt_dir", "cpse/textgrad_validation/prompts"))
+    prompt_dir = _resolve(base, paths.get("prompt_dir", "test/textgrad_validation/prompts"))
     evaluation = raw.get("evaluation", {})
     if not isinstance(evaluation, dict):
         raise ValueError("Config evaluation must be an object.")
     include_error_locations = bool(evaluation.get("include_error_locations", False))
     include_pdf = bool(evaluation.get("include_pdf", False))
+    judge_protocol = str(evaluation.get("judge_protocol", "main_pdf_semantic"))
+    if judge_protocol not in {"main_pdf_semantic", "schema_free_content_audit"}:
+        raise ValueError(f"Unsupported evaluation.judge_protocol: {judge_protocol!r}.")
     optimization_mode = str(raw.get("optimization_mode", "single"))
     if optimization_mode not in (
         "single",
         "opro_prompt_only",
         "gepa_prompt_only",
+        "gepa_manifest",
         "mipro_v2_instruction_only",
         "mipro_v2",
         "schema_free_direct",
@@ -82,12 +86,13 @@ def load_config(path: Path, project_root: Path | None = None) -> ExperimentConfi
         raise ValueError("train_ids must contain three unique document IDs.")
     if optimization_mode == "few_shot_direct" and train_ids is None:
         raise ValueError("few_shot_direct requires an explicit three-document train_ids pool.")
-    if optimization_mode == "schema_free_direct" and include_error_locations:
-        raise ValueError("schema_free_direct does not support schema-path error locations.")
-    if optimization_mode == "schema_free_direct" and include_pdf:
-        judge_prompt_name = "judge_schema_free_with_pdf_system.txt"
-    elif optimization_mode == "schema_free_direct":
-        judge_prompt_name = "judge_schema_free_system.txt"
+    if judge_protocol == "schema_free_content_audit":
+        if optimization_mode != "schema_free_direct" or include_pdf:
+            raise ValueError(
+                "schema_free_content_audit requires optimization_mode: schema_free_direct "
+                "and evaluation.include_pdf: false."
+            )
+        judge_prompt_name = "judge_schema_free_content_audit_system.txt"
     elif include_pdf and include_error_locations:
         judge_prompt_name = "judge_with_pdf_locations_system.txt"
     elif include_pdf:
@@ -102,7 +107,7 @@ def load_config(path: Path, project_root: Path | None = None) -> ExperimentConfi
     cache = raw.get("cache", {})
     if not isinstance(cache, dict):
         raise ValueError("Config cache must be an object.")
-    schema_prompt_dir = _resolve(base, paths.get("prompt_dir", "cpse/textgrad_validation/prompts"))
+    schema_prompt_dir = _resolve(base, paths.get("prompt_dir", "test/textgrad_validation/prompts"))
     config = ExperimentConfig(
         data_dir=_resolve(base, _required(paths, "data_dir")),
         schema_path=_resolve(base, _required(paths, "schema_path")),
@@ -116,6 +121,7 @@ def load_config(path: Path, project_root: Path | None = None) -> ExperimentConfi
         gold_audit=_parse_role(roles, "gold_audit"),
         include_error_locations=include_error_locations,
         include_pdf=include_pdf,
+        judge_protocol=judge_protocol,
         gold_audit_enabled=bool(raw.get("gold_audit", {}).get("enabled", False)),
         max_iterations=_positive_int(raw.get("max_iterations", 3), "max_iterations"),
         max_parallel_calls=_positive_int(raw.get("max_parallel_calls", 3), "max_parallel_calls"),
@@ -134,10 +140,10 @@ def load_config(path: Path, project_root: Path | None = None) -> ExperimentConfi
             if optimization_mode in {"description_only", "alternating_schema_description", "two_stage_alternating_schema_description", "two_stage_coverage_plan_schema_description", "two_stage_evidence_routing_schema_description"}
             else None
         ),
-        evidence_initial_prompt_path=(schema_prompt_dir / "evidence_initial.txt" if optimization_mode in {"two_stage_alternating_schema_description", "two_stage_coverage_plan_schema_description", "two_stage_evidence_routing_schema_description"} else None),
-        evidence_system_prompt_path=(schema_prompt_dir / "evidence_system.txt" if optimization_mode in {"two_stage_alternating_schema_description", "two_stage_coverage_plan_schema_description", "two_stage_evidence_routing_schema_description"} else None),
-        resolve_initial_prompt_path=(schema_prompt_dir / "resolve_initial.txt" if optimization_mode in {"two_stage_alternating_schema_description", "two_stage_coverage_plan_schema_description", "two_stage_evidence_routing_schema_description"} else None),
-        resolve_system_prompt_path=(schema_prompt_dir / "resolve_system.txt" if optimization_mode in {"two_stage_alternating_schema_description", "two_stage_coverage_plan_schema_description", "two_stage_evidence_routing_schema_description"} else None),
+        evidence_initial_prompt_path=(schema_prompt_dir / "evidence_initial.txt" if optimization_mode in {"gepa_manifest", "two_stage_alternating_schema_description", "two_stage_coverage_plan_schema_description", "two_stage_evidence_routing_schema_description"} else None),
+        evidence_system_prompt_path=(schema_prompt_dir / "evidence_system.txt" if optimization_mode in {"gepa_manifest", "two_stage_alternating_schema_description", "two_stage_coverage_plan_schema_description", "two_stage_evidence_routing_schema_description"} else None),
+        resolve_initial_prompt_path=(schema_prompt_dir / "resolve_initial.txt" if optimization_mode in {"gepa_manifest", "two_stage_alternating_schema_description", "two_stage_coverage_plan_schema_description", "two_stage_evidence_routing_schema_description"} else None),
+        resolve_system_prompt_path=(schema_prompt_dir / "resolve_system.txt" if optimization_mode in {"gepa_manifest", "two_stage_alternating_schema_description", "two_stage_coverage_plan_schema_description", "two_stage_evidence_routing_schema_description"} else None),
         coverage_plan_system_prompt_path=(schema_prompt_dir / "coverage_plan_system.txt" if optimization_mode == "two_stage_coverage_plan_schema_description" else None),
         evidence_routing_initial_prompt_path=(schema_prompt_dir / "evidence_routing_initial.txt" if optimization_mode == "two_stage_evidence_routing_schema_description" else None),
         evidence_routing_system_prompt_path=(schema_prompt_dir / "evidence_routing_system.txt" if optimization_mode == "two_stage_evidence_routing_schema_description" else None),
@@ -162,7 +168,7 @@ def require_api_key(config: ModelConfig) -> str:
 
 
 def locate_project_root(config_path: Path) -> Path:
-    """Locate the release root. config_path is e.g. cpse/textgrad_validation/config.yaml."""
+    """Locate the repository root. config_path is e.g. test/textgrad_validation/config.yaml."""
     return config_path.parent.parent.parent.resolve()
 
 
@@ -182,6 +188,7 @@ def config_fingerprint(config: ExperimentConfig) -> str:
         "split_algorithm_version": config.split_algorithm_version,
         "request_format_version": config.request_format_version,
         "evaluation_include_pdf": config.include_pdf,
+        "judge_protocol": config.judge_protocol,
         "prompt_hashes": {
             "initial": sha256_file(config.initial_prompt_path),
             "extraction_system": sha256_file(config.extraction_system_prompt_path),
@@ -198,8 +205,8 @@ def config_fingerprint(config: ExperimentConfig) -> str:
         fingerprint_data["schema_patch_policy_version"] = config.schema_patch_policy_version
         fingerprint_data["prompt_hashes"]["schema_description_system"] = sha256_file(config.schema_description_system_prompt_path)
         fingerprint_data["prompt_hashes"]["schema_description_initial"] = sha256_file(config.schema_description_initial_prompt_path)
-    if config.optimization_mode in {"two_stage_alternating_schema_description", "two_stage_coverage_plan_schema_description", "two_stage_evidence_routing_schema_description"}:
-        fingerprint_data["two_stage_protocol_version"] = ("evidence-routing-resolve-section-v1" if config.optimization_mode == "two_stage_evidence_routing_schema_description" else ("evidence-coverage-resolve-section-v1" if config.optimization_mode == "two_stage_coverage_plan_schema_description" else "evidence-resolve-section-v1"))
+    if config.optimization_mode in {"gepa_manifest", "two_stage_alternating_schema_description", "two_stage_coverage_plan_schema_description", "two_stage_evidence_routing_schema_description"}:
+        fingerprint_data["two_stage_protocol_version"] = ("evidence-routing-resolve-section-v2" if config.optimization_mode == "two_stage_evidence_routing_schema_description" else ("evidence-coverage-resolve-section-v2" if config.optimization_mode == "two_stage_coverage_plan_schema_description" else "evidence-resolve-section-v2"))
         fingerprint_data["prompt_hashes"].update({
             "evidence_initial": sha256_file(config.evidence_initial_prompt_path),
             "evidence_system": sha256_file(config.evidence_system_prompt_path),
@@ -249,7 +256,7 @@ def _validate_files(config: ExperimentConfig) -> None:
     if config.optimization_mode in {"description_only", "alternating_schema_description", "two_stage_alternating_schema_description", "two_stage_coverage_plan_schema_description", "two_stage_evidence_routing_schema_description"}:
         paths.append(config.schema_description_system_prompt_path)
         paths.append(config.schema_description_initial_prompt_path)
-    if config.optimization_mode in {"two_stage_alternating_schema_description", "two_stage_coverage_plan_schema_description", "two_stage_evidence_routing_schema_description"}:
+    if config.optimization_mode in {"gepa_manifest", "two_stage_alternating_schema_description", "two_stage_coverage_plan_schema_description", "two_stage_evidence_routing_schema_description"}:
         paths.extend((config.evidence_initial_prompt_path, config.evidence_system_prompt_path, config.resolve_initial_prompt_path, config.resolve_system_prompt_path))
     if config.optimization_mode == "two_stage_coverage_plan_schema_description":
         paths.append(config.coverage_plan_system_prompt_path)

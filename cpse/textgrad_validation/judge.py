@@ -26,6 +26,13 @@ _PDF_BREAKDOWN_LIMITS = {
     "properties": 50,
     "characterization": 10,
 }
+_COVERAGE_AUDIT_COUNT_KEYS = {
+    "major_entity_missing_count",
+    "major_process_route_missing_count",
+    "major_property_block_missing_count",
+    "compressed_sample_specific_block_count",
+    "independent_material_issue_count",
+}
 
 
 class TextTransport(Protocol):
@@ -46,12 +53,14 @@ class GoldJudge:
         include_error_locations: bool = False,
         include_pdf: bool = False,
         include_schema: bool = True,
+        enforce_coverage_audit: bool = False,
     ):
         self._transport = transport
         self._system_prompt = system_prompt
         self._include_error_locations = include_error_locations
         self._include_pdf = include_pdf
         self._include_schema = include_schema
+        self._enforce_coverage_audit = enforce_coverage_audit
 
     def judge(
         self,
@@ -76,10 +85,21 @@ class GoldJudge:
         else:
             _assert_no_pdf_input(payload)
             raw = self._transport.complete_json(system_prompt=self._system_prompt, payload=payload)
-        return parse_judge_result(raw, include_error_locations=self._include_error_locations, include_pdf=self._include_pdf)
+        return parse_judge_result(
+            raw,
+            include_error_locations=self._include_error_locations,
+            include_pdf=self._include_pdf,
+            enforce_coverage_audit=self._enforce_coverage_audit,
+        )
 
 
-def parse_judge_result(raw_response: str, *, include_error_locations: bool = False, include_pdf: bool = False) -> JudgeResult:
+def parse_judge_result(
+    raw_response: str,
+    *,
+    include_error_locations: bool = False,
+    include_pdf: bool = False,
+    enforce_coverage_audit: bool = False,
+) -> JudgeResult:
     try:
         value = json.loads(raw_response)
     except json.JSONDecodeError as exc:
@@ -89,6 +109,8 @@ def parse_judge_result(raw_response: str, *, include_error_locations: bool = Fal
     expected = {"score", "score_breakdown", "optimization_feedback"}
     if include_error_locations:
         expected.add("path_errors")
+    if enforce_coverage_audit:
+        expected.add("coverage_audit")
     missing = expected - set(value)
     if missing:
         raise ValueError(f"Judge result is missing required keys: {sorted(missing)}.")
@@ -102,12 +124,70 @@ def parse_judge_result(raw_response: str, *, include_error_locations: bool = Fal
     if not isinstance(feedback, str) or not feedback.strip():
         raise ValueError("Judge optimization_feedback must be non-empty text.")
     errors = _parse_path_errors(value.get("path_errors", [])) if include_error_locations else ()
+    audit_details: dict[str, Any] = {}
+    if enforce_coverage_audit:
+        audit_counts = _parse_coverage_audit(value["coverage_audit"])
+        raw_score = float(score)
+        cap = _coverage_audit_cap(audit_counts)
+        applied_score = min(raw_score, float(cap))
+        if applied_score < raw_score:
+            breakdown = _apply_coverage_cap(breakdown, applied_score)
+        score = applied_score
+        audit_details = {
+            **audit_counts,
+            "raw_score": raw_score,
+            "applied_score_cap": cap,
+        }
     return JudgeResult(
         score=float(score),
         optimization_feedback=feedback.strip(),
         path_errors=errors,
         score_breakdown=breakdown,
+        audit_details=audit_details,
     )
+
+
+def _parse_coverage_audit(raw_audit: Any) -> dict[str, int]:
+    if not isinstance(raw_audit, dict) or set(raw_audit) != _COVERAGE_AUDIT_COUNT_KEYS:
+        raise ValueError(
+            f"Judge coverage_audit must contain exactly: {sorted(_COVERAGE_AUDIT_COUNT_KEYS)}."
+        )
+    parsed: dict[str, int] = {}
+    for name in sorted(_COVERAGE_AUDIT_COUNT_KEYS):
+        value = raw_audit[name]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"Judge coverage_audit.{name} must be a non-negative integer.")
+        parsed[name] = value
+    return parsed
+
+
+def _coverage_audit_cap(audit: dict[str, int]) -> int:
+    caps = [100]
+    if (
+        audit["major_entity_missing_count"]
+        + audit["major_process_route_missing_count"]
+        + audit["major_property_block_missing_count"]
+        > 0
+    ):
+        caps.append(69)
+    if audit["compressed_sample_specific_block_count"] > 0:
+        caps.append(79)
+    if audit["independent_material_issue_count"] >= 2:
+        caps.append(84)
+    return min(caps)
+
+
+def _apply_coverage_cap(breakdown: dict[str, float], target_score: float) -> dict[str, float]:
+    """Apply an audit cap as a coverage deduction while preserving the total."""
+    adjusted = dict(breakdown)
+    excess = sum(adjusted.values()) - target_score
+    for name in ("coverage", "properties", "process", "document_sample", "characterization", "accuracy"):
+        if excess <= 0 or name not in adjusted:
+            continue
+        deduction = min(adjusted[name], excess)
+        adjusted[name] = round(adjusted[name] - deduction, 10)
+        excess = round(excess - deduction, 10)
+    return adjusted
 
 
 def _parse_score_breakdown(raw_breakdown: Any, *, include_pdf: bool) -> dict[str, float]:

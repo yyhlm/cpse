@@ -12,9 +12,30 @@ import yaml
 
 
 _PRIVATE_CONFIG_KEYS = {"api_key_env", "base_url", "proxy"}
-_EXCLUDED_TOP_LEVEL = {"data", "results", "artifact_release", "ppt", "ppt_projects", "presentations", "casestudy", "__pycache__"}
+_PUBLIC_TOP_LEVEL = {"__init__.py", "README.md", "schema.json", "tests", "textgrad_validation"}
 _EXCLUDED_NAMES = {".env", ".env.example", "output.log"}
-_REQUIREMENTS = "# Core experiment runtime\ntextgrad==0.1.8\nopenai\njsonschema\npyyaml\n\n# Optional optimization baselines / labeled demonstrations\ndspy\npypdf\n\n# Offline tests and statistics\npytest\nscipy\n"
+_REQUIREMENTS = """# Core experiment runtime
+textgrad==0.1.8
+openai
+httpx
+jsonschema
+pyyaml
+pymupdf
+
+# External optimization baselines / labeled demonstrations
+gepa==0.1.4
+dspy==3.3.1
+pypdf
+
+# Offline tests and statistics
+pytest
+scipy
+"""
+
+
+def code_release_output_dir(output_root: Path) -> Path:
+    """Return the public source-release directory beside the results directory."""
+    return output_root.parent / "code_release"
 
 
 def build_code_release(*, source_root: Path, output_dir: Path) -> Path:
@@ -23,30 +44,57 @@ def build_code_release(*, source_root: Path, output_dir: Path) -> Path:
     output_dir = output_dir.resolve()
     if not source_root.is_dir():
         raise FileNotFoundError(f"Test source directory does not exist: {source_root}")
-    if output_dir == source_root or source_root in output_dir.parents:
-        raise ValueError("Code-release output must not be inside the source directory.")
+    if output_dir == source_root or (source_root in output_dir.parents and output_dir.parent != source_root):
+        raise ValueError("Code-release output may only use the excluded code_release directory directly under the source root.")
     if output_dir.exists():
-        shutil.rmtree(output_dir)
-    target_test = output_dir / "test"
-    target_test.mkdir(parents=True)
+        for child in output_dir.iterdir():
+            if child.name == ".git":
+                continue
+            if child.is_dir():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
+    target_package = output_dir / "cpse"
+    target_package.mkdir(parents=True)
+    (target_package / "data").mkdir()
+    (target_package / "data" / ".gitkeep").write_text("", encoding="utf-8")
     for source in sorted(source_root.iterdir()):
-        if source.name in _EXCLUDED_TOP_LEVEL or source.name in _EXCLUDED_NAMES:
+        if source.name not in _PUBLIC_TOP_LEVEL or source.name in _EXCLUDED_NAMES:
             continue
-        destination = target_test / source.name
+        destination = target_package / source.name
         if source.is_dir():
             shutil.copytree(source, destination, ignore=_ignore_private_runtime_files)
         elif source.is_file():
             shutil.copy2(source, destination)
-    for config_path in target_test.rglob("*.yaml"):
+    for config_path in target_package.rglob("*.yaml"):
         _redact_yaml_file(config_path)
     (output_dir / "requirements.txt").write_text(_REQUIREMENTS, encoding="utf-8")
+    (output_dir / ".env.example").write_text("MODEL_API_KEY=\n", encoding="utf-8")
+    (output_dir / ".gitignore").write_text(
+        ".env\n.venv/\n__pycache__/\n.pytest_cache/\n*.py[cod]\ncpse/data/*\n!cpse/data/.gitkeep\ncpse/results/\ncpse/artifact_release/\n",
+        encoding="utf-8",
+    )
     _write_readme(output_dir)
     _write_checksums(output_dir)
     return output_dir
 
 
 def _ignore_private_runtime_files(_directory: str, names: list[str]) -> set[str]:
-    return {name for name in names if name in _EXCLUDED_NAMES or name in {"__pycache__", ".pytest_cache"} or name.endswith(".pdf") or name.endswith(".pyc")}
+    return {
+        name
+        for name in names
+        if name in _EXCLUDED_NAMES
+        or name in {
+            "__pycache__",
+            ".pytest_cache",
+            "test_casestudy_metrics.py",
+            "test_gemini_stability.py",
+            "gemini_stability.py",
+            "probe_reasoning.py",
+        }
+        or name.endswith(".pdf")
+        or name.endswith(".pyc")
+    }
 
 
 def _redact_yaml_file(path: Path) -> None:
@@ -60,22 +108,51 @@ def _redact_yaml_file(path: Path) -> None:
 
 def _redact(value: Any) -> Any:
     if isinstance(value, dict):
-        return {key: _redact(child) for key, child in value.items() if str(key) not in _PRIVATE_CONFIG_KEYS}
+        redacted = {key: _redact(child) for key, child in value.items() if str(key) not in _PRIVATE_CONFIG_KEYS}
+        if "base_url" in value:
+            redacted["base_url"] = "https://api.example.com/v1"
+        if "api_key_env" in value:
+            redacted["api_key_env"] = "MODEL_API_KEY"
+        if "proxy" in value:
+            redacted["proxy"] = None
+        return redacted
     if isinstance(value, list):
         return [_redact(child) for child in value]
     return value
 
 
 def _write_readme(output_dir: Path) -> None:
-    text = """# Source release: TextGrad scientific PDF extraction experiment
+    text = """# Contract-Preserving Scientific PDF Extraction
 
-This package contains the full `cpse/` experiment source: implementation, prompts, sanitized configuration template, schema, and user documentation. It deliberately excludes PDFs, Gold annotations, run results, caches, environment files, credentials, service URLs, and proxy settings.
+This repository contains the implementation, prompts, schema, sanitized experiment configurations, and offline tests for low-resource scientific PDF extraction with TextGrad. It deliberately excludes copyrighted PDFs, Gold annotations, run results, caches, credentials, private service URLs, and proxy settings.
+
+## Quick start
+
+```bash
+python -m venv .venv
+# Windows: .venv\\Scripts\\activate
+# Linux/macOS: source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Copy `cpse/textgrad_validation/config.example.yaml`, replace the model and endpoint placeholders, and set `MODEL_API_KEY` using `.env.example` as a template. Place an authorized PDF/Gold dataset under `cpse/data/`, then run:
+
+```bash
+python -m cpse.textgrad_validation --config <config.yaml> --run-id <run-id>
+python -m pytest -q cpse/tests
+```
+
+The primary two-stage configuration is `cpse/textgrad_validation/config_two_stage2.yaml`. Detailed modes, artifact layouts, recovery commands, and ablation protocols are documented in `cpse/README.md` and `cpse/textgrad_validation/README.md`.
 
 ## Reproduction boundary
 
-Install `requirements.txt`, place an authorized PDF/Gold dataset under `cpse/data/`, configure your own endpoint and credentials locally, then follow `cpse/README.md`. Published result verification should use the paired public artifact bundle, which contains frozen predictions and evaluation artifacts.
+Published result verification should use the paired public artifact bundle containing frozen predictions and evaluation artifacts. This source release alone cannot reproduce PDF-dependent scores without authorized source documents and Gold annotations.
 
 The schema and prompts are included because they define the evaluated protocol. Raw source documents are excluded because redistribution rights remain with the respective publishers.
+
+## License
+
+No open-source license is selected automatically. Add the intended license before making the GitHub repository public.
 """
     (output_dir / "README.md").write_text(text, encoding="utf-8")
 

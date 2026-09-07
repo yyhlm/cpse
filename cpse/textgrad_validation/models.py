@@ -60,8 +60,8 @@ class ModelConfig:
     # | "gemini_generate_content"（Google Gemini 原生 generateContent，PDF 字节 inline_data 直传）。
     api_protocol: str = "responses"
     # 推理开关：设为 "none" 关闭模型的 thinking（SenseNova 网关实测 `reasoning_effort: "none"`
-    # 生效，completion_tokens 从 ~247 降到 2）。用于 chat_completions_pdf_images 通道；
-    # responses 通道暂不映射。属于模型指纹的一部分，变更需新 run-id。
+    # 生效，completion_tokens 从 ~247 降到 2）。Responses 通道映射为
+    # ``reasoning: {effort: ...}``。属于模型指纹的一部分，变更需新 run-id。
     reasoning_effort: str | None = None
 
 
@@ -79,6 +79,7 @@ class ExperimentConfig:
     gold_audit: ModelConfig
     include_error_locations: bool = False
     include_pdf: bool = False
+    judge_protocol: str = "main_pdf_semantic"
     gold_audit_enabled: bool = False
     max_iterations: int = 3
     max_parallel_calls: int = 3
@@ -140,6 +141,7 @@ class JudgeResult:
     optimization_feedback: str
     path_errors: tuple[PathError, ...] = field(default_factory=tuple)
     score_breakdown: dict[str, float] = field(default_factory=dict)
+    audit_details: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

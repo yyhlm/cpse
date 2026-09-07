@@ -28,6 +28,15 @@ _PROPERTY_NAME_ALIASES = {
     "玻璃化转变温度": "glass transition temperature", "5%失重分解温度": "degradation temperature at 5% weight loss",
     "热分解温度": "decomposition temperature", "吸水率": "water absorption", "接触角": "contact angle",
 }
+_CONDITION_NAME_ALIASES = {
+    "温度": "temperature", "测试温度": "temperature",
+    "频率": "frequency", "测试频率": "frequency",
+    "气氛": "atmosphere", "测试气氛": "atmosphere",
+    "压力": "pressure", "测试压力": "pressure",
+    "厚度": "thickness", "样品厚度": "thickness",
+    "升温速率": "heating_rate", "温度扫描速率": "temperature_scan_rate",
+    "扫描速率": "scan_rate", "测试速率": "test_rate", "拉伸速率": "tensile_rate",
+}
 
 
 def _normalize_string(value: str) -> str:
@@ -109,6 +118,14 @@ def _quantity(value: Any, unit: Any) -> tuple[str, Any]:
         return "missing", ""
     if text and _NUMERIC.fullmatch(text):
         number = float(text)
+        if unit_text in {"°c", "℃", "celsius", "degc"}:
+            return "temperature_k", number + 273.15
+        if unit_text in {"k", "kelvin"}:
+            return "temperature_k", number
+        if unit_text in {"%", "percent", "wt%", "vol%"}:
+            return "ratio_percent", number
+        if unit_text in {"cm-1", "cm^-1", "1/cm"}:
+            return "wavenumber_cm-1", number
         dimension, factor = _UNIT_FACTORS.get(unit_text, ("unit:" + unit_text, 1.0))
         return dimension, number * factor
     return "text:" + unit_text, text.casefold()
@@ -185,6 +202,255 @@ def _property_prf(prediction: Any, gold: Any) -> tuple[float, float, float, int,
     return precision, recall, f1, matched, len(predicted), len(expected)
 
 
+def _normalized_label(value: Any) -> str:
+    text = _normalize_string(str(value)).casefold()
+    return re.sub(r"[\s_\-–—:/]+", "", text)
+
+
+def _canonical_identity(value: Any) -> str:
+    text = _normalize_string(str(value)).casefold()
+    match = re.fullmatch(r"doi:[^_]+_(.+)_\d+", text)
+    if match:
+        text = match.group(1)
+    return _normalized_label(text.removeprefix("doi:"))
+
+
+def _identity_tokens(record: Any) -> tuple[set[str], set[str]]:
+    if not isinstance(record, dict):
+        return set(), set()
+    identities = {
+        _canonical_identity(record[key])
+        for key in _IDENTITY_KEYS
+        if isinstance(record.get(key), str) and str(record[key]).strip()
+    }
+    names = {
+        _normalized_label(record[key])
+        for key in ("名称", "样品名称", "缩写", "name")
+        if isinstance(record.get(key), str) and str(record[key]).strip()
+    }
+    return {item for item in identities if item}, {item for item in names if item}
+
+
+def _record_similarity(left: Any, right: Any) -> float:
+    if not isinstance(left, dict) or not isinstance(right, dict):
+        return 0.0
+    shared = 0
+    compared = 0
+    for key in ("聚合物分类名称", "聚合物分类编码", "样本形态", "结构特征_L1", "结构特征_L2"):
+        left_value = _normalized_label(left.get(key, ""))
+        right_value = _normalized_label(right.get(key, ""))
+        if not left_value or not right_value:
+            continue
+        compared += 1
+        shared += int(left_value == right_value)
+    left_props = {_normalized_label(item.get("名称", "")) for item in left.get("性质", []) if isinstance(item, dict)}
+    right_props = {_normalized_label(item.get("名称", "")) for item in right.get("性质", []) if isinstance(item, dict)}
+    left_props.discard("")
+    right_props.discard("")
+    if left_props and right_props:
+        compared += 1
+        shared += len(left_props & right_props) / len(left_props | right_props)
+    return shared / compared if compared else 0.0
+
+
+def _align_entities(prediction: Any, gold: Any) -> tuple[list[tuple[int, int]], int, int]:
+    predicted = prediction.get("聚合物", []) if isinstance(prediction, dict) else []
+    expected = gold.get("聚合物", []) if isinstance(gold, dict) else []
+    predicted = predicted if isinstance(predicted, list) else []
+    expected = expected if isinstance(expected, list) else []
+    available_pred = set(range(len(predicted)))
+    available_gold = set(range(len(expected)))
+    pairs: list[tuple[int, int]] = []
+
+    def match_tier(score_fn) -> None:
+        candidates = []
+        for pred_index in available_pred:
+            for gold_index in available_gold:
+                score = score_fn(predicted[pred_index], expected[gold_index])
+                if score > 0:
+                    candidates.append((score, pred_index, gold_index))
+        for _, pred_index, gold_index in sorted(candidates, key=lambda row: (-row[0], row[1], row[2])):
+            if pred_index in available_pred and gold_index in available_gold:
+                pairs.append((pred_index, gold_index))
+                available_pred.remove(pred_index)
+                available_gold.remove(gold_index)
+
+    match_tier(lambda left, right: 1.0 if _identity_tokens(left)[0] & _identity_tokens(right)[0] else 0.0)
+    match_tier(lambda left, right: 1.0 if _identity_tokens(left)[1] & _identity_tokens(right)[1] else 0.0)
+    match_tier(lambda left, right: _record_similarity(left, right) if _record_similarity(left, right) >= 0.5 else 0.0)
+    return pairs, len(predicted), len(expected)
+
+
+def _property_aliases(record: Any) -> set[str]:
+    if not isinstance(record, dict):
+        return set()
+    aliases = set()
+    for key in ("名称", "缩写", "类别"):
+        value = _normalize_string(str(record.get(key, ""))).casefold()
+        if value:
+            aliases.add(_normalized_label(_PROPERTY_NAME_ALIASES.get(value, value)))
+    return aliases
+
+
+def _value_slots(record: Any) -> dict[str, tuple[str, Any]]:
+    if not isinstance(record, dict) or not isinstance(record.get("值"), dict):
+        return {}
+    value = record["值"]
+    unit = value.get("单位", "")
+    slots = {}
+    for key in ("最小", "最大", "单值"):
+        raw = value.get(key, "")
+        if raw not in (None, ""):
+            slots[key] = _quantity(raw, unit)
+    return slots
+
+
+def _condition_slots(record: Any) -> dict[str, tuple[str, Any]]:
+    if not isinstance(record, dict) or not isinstance(record.get("测试条件"), dict):
+        return {}
+    slots = {}
+    for key, raw in record["测试条件"].items():
+        canonical_key = _CONDITION_NAME_ALIASES.get(str(key), _normalized_label(key))
+        if isinstance(raw, dict):
+            if raw.get("单值", "") not in (None, ""):
+                slots[canonical_key] = _quantity(raw.get("单值"), raw.get("单位", ""))
+            for bound in ("最小", "最大"):
+                if raw.get(bound, "") not in (None, ""):
+                    slots[f"{canonical_key}:{bound}"] = _quantity(raw.get(bound), raw.get("单位", ""))
+        elif raw not in (None, "", [], {}):
+            slots[canonical_key] = _quantity(raw, "")
+    return slots
+
+
+def _slot_match_count(predicted: dict[str, Any], expected: dict[str, Any]) -> int:
+    return sum(
+        1 for key, value in predicted.items()
+        if key in expected and _normalized_equal(value, expected[key])
+    )
+
+
+def _align_properties(predicted: Any, expected: Any) -> tuple[list[tuple[dict[str, Any], dict[str, Any]]], int, int]:
+    predicted_props = predicted.get("性质", []) if isinstance(predicted, dict) else []
+    expected_props = expected.get("性质", []) if isinstance(expected, dict) else []
+    predicted_props = [item for item in predicted_props if isinstance(item, dict)] if isinstance(predicted_props, list) else []
+    expected_props = [item for item in expected_props if isinstance(item, dict)] if isinstance(expected_props, list) else []
+    available = set(range(len(expected_props)))
+    pairs = []
+    for predicted_prop in predicted_props:
+        candidates = []
+        for index in available:
+            if not (_property_aliases(predicted_prop) & _property_aliases(expected_props[index])):
+                continue
+            value_overlap = _slot_match_count(_value_slots(predicted_prop), _value_slots(expected_props[index]))
+            condition_overlap = _slot_match_count(_condition_slots(predicted_prop), _condition_slots(expected_props[index]))
+            candidates.append((value_overlap + condition_overlap, index))
+        if candidates:
+            _, index = max(candidates, key=lambda row: (row[0], -row[1]))
+            available.remove(index)
+            pairs.append((predicted_prop, expected_props[index]))
+    return pairs, len(predicted_props), len(expected_props)
+
+
+def _schema_aware_metrics(prediction: Any, gold: Any) -> dict[str, Any]:
+    predicted_entities = prediction.get("聚合物", []) if isinstance(prediction, dict) else []
+    gold_entities = gold.get("聚合物", []) if isinstance(gold, dict) else []
+    predicted_entities = predicted_entities if isinstance(predicted_entities, list) else []
+    gold_entities = gold_entities if isinstance(gold_entities, list) else []
+    entity_pairs, predicted_entity_count, gold_entity_count = _align_entities(prediction, gold)
+    entity_precision, entity_recall, entity_f1 = _prf(Counter({index: 1 for index in range(len(entity_pairs))}), Counter({index: 1 for index in range(gold_entity_count)}))
+    entity_precision = len(entity_pairs) / predicted_entity_count if predicted_entity_count else (1.0 if not gold_entity_count else 0.0)
+    entity_recall = len(entity_pairs) / gold_entity_count if gold_entity_count else (1.0 if not predicted_entity_count else 0.0)
+    entity_f1 = 2 * entity_precision * entity_recall / (entity_precision + entity_recall) if entity_precision + entity_recall else 0.0
+
+    property_pairs = []
+    predicted_property_count = 0
+    gold_property_count = 0
+    for pred_index, gold_index in entity_pairs:
+        pairs, pred_count, gold_count = _align_properties(predicted_entities[pred_index], gold_entities[gold_index])
+        property_pairs.extend(pairs)
+        predicted_property_count += pred_count
+        gold_property_count += gold_count
+    for index, entity in enumerate(predicted_entities):
+        if index not in {pair[0] for pair in entity_pairs} and isinstance(entity, dict) and isinstance(entity.get("性质"), list):
+            predicted_property_count += len(entity["性质"])
+    for index, entity in enumerate(gold_entities):
+        if index not in {pair[1] for pair in entity_pairs} and isinstance(entity, dict) and isinstance(entity.get("性质"), list):
+            gold_property_count += len(entity["性质"])
+    property_matched = len(property_pairs)
+    property_precision = property_matched / predicted_property_count if predicted_property_count else (1.0 if not gold_property_count else 0.0)
+    property_recall = property_matched / gold_property_count if gold_property_count else (1.0 if not predicted_property_count else 0.0)
+    property_f1 = 2 * property_precision * property_recall / (property_precision + property_recall) if property_precision + property_recall else 0.0
+
+    all_predicted_properties = [
+        prop for entity in predicted_entities if isinstance(entity, dict)
+        for prop in (entity.get("性质", []) if isinstance(entity.get("性质"), list) else [])
+        if isinstance(prop, dict)
+    ]
+    all_gold_properties = [
+        prop for entity in gold_entities if isinstance(entity, dict)
+        for prop in (entity.get("性质", []) if isinstance(entity.get("性质"), list) else [])
+        if isinstance(prop, dict)
+    ]
+    value_matched = 0
+    value_predicted = sum(len(_value_slots(prop)) for prop in all_predicted_properties)
+    value_gold = sum(len(_value_slots(prop)) for prop in all_gold_properties)
+    condition_matched = 0
+    condition_predicted = sum(len(_condition_slots(prop)) for prop in all_predicted_properties)
+    condition_gold = sum(len(_condition_slots(prop)) for prop in all_gold_properties)
+    for predicted_prop, gold_prop in property_pairs:
+        predicted_values = _value_slots(predicted_prop)
+        gold_values = _value_slots(gold_prop)
+        value_matched += _slot_match_count(predicted_values, gold_values)
+        predicted_conditions = _condition_slots(predicted_prop)
+        gold_conditions = _condition_slots(gold_prop)
+        condition_matched += _slot_match_count(predicted_conditions, gold_conditions)
+
+    def scores(matched: int, predicted_count: int, gold_count: int) -> tuple[float, float, float]:
+        precision = matched / predicted_count if predicted_count else (1.0 if not gold_count else 0.0)
+        recall = matched / gold_count if gold_count else (1.0 if not predicted_count else 0.0)
+        f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+        return precision, recall, f1
+
+    value_precision, value_recall, value_f1 = scores(value_matched, value_predicted, value_gold)
+    condition_precision, condition_recall, condition_f1 = scores(condition_matched, condition_predicted, condition_gold)
+    total_matched = len(entity_pairs) + property_matched + value_matched + condition_matched
+    total_predicted = predicted_entity_count + predicted_property_count + value_predicted + condition_predicted
+    total_gold = gold_entity_count + gold_property_count + value_gold + condition_gold
+    slot_precision, slot_recall, slot_f1 = scores(total_matched, total_predicted, total_gold)
+    return {
+        "aligned_entity_precision": entity_precision,
+        "aligned_entity_recall": entity_recall,
+        "aligned_entity_f1": entity_f1,
+        "aligned_entity_matched_count": len(entity_pairs),
+        "aligned_entity_predicted_count": predicted_entity_count,
+        "aligned_entity_gold_count": gold_entity_count,
+        "property_detection_precision": property_precision,
+        "property_detection_recall": property_recall,
+        "property_detection_f1": property_f1,
+        "property_detection_matched_count": property_matched,
+        "property_detection_predicted_count": predicted_property_count,
+        "property_detection_gold_count": gold_property_count,
+        "value_unit_precision": value_precision,
+        "value_unit_recall": value_recall,
+        "value_unit_f1": value_f1,
+        "value_unit_matched_count": value_matched,
+        "value_unit_predicted_count": value_predicted,
+        "value_unit_gold_count": value_gold,
+        "condition_slot_precision": condition_precision,
+        "condition_slot_recall": condition_recall,
+        "condition_slot_f1": condition_f1,
+        "condition_slot_matched_count": condition_matched,
+        "condition_slot_predicted_count": condition_predicted,
+        "condition_slot_gold_count": condition_gold,
+        "schema_aware_slot_precision": slot_precision,
+        "schema_aware_slot_recall": slot_recall,
+        "schema_aware_slot_f1": slot_f1,
+        "schema_aware_slot_matched_count": total_matched,
+        "schema_aware_slot_predicted_count": total_predicted,
+        "schema_aware_slot_gold_count": total_gold,
+    }
+
+
 def compare_prediction_to_gold(prediction, gold):
     predicted_facts = _leaf_facts(prediction)
     gold_facts = _leaf_facts(gold)
@@ -220,6 +486,7 @@ def compare_prediction_to_gold(prediction, gold):
         "property_tuple_predicted_count": property_predicted,
         "property_tuple_gold_count": property_gold,
         "normalized_metric_scope": "entity_aligned_canonicalizable_properties_only",
+        **_schema_aware_metrics(prediction, gold),
     }
 
 
@@ -259,6 +526,23 @@ def _micro_property_prf(rows: list[dict[str, Any]]) -> dict[str, float | int]:
         "property_tuple_micro_precision": precision,
         "property_tuple_micro_recall": recall,
         "property_tuple_micro_f1": f1,
+    }
+
+
+def _micro_schema_aware_prf(rows: list[dict[str, Any]]) -> dict[str, float | int]:
+    matched = sum(int(row["schema_aware_slot_matched_count"]) for row in rows)
+    predicted = sum(int(row["schema_aware_slot_predicted_count"]) for row in rows)
+    gold = sum(int(row["schema_aware_slot_gold_count"]) for row in rows)
+    precision = matched / predicted if predicted else (1.0 if not gold else 0.0)
+    recall = matched / gold if gold else (1.0 if not predicted else 0.0)
+    f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+    return {
+        "schema_aware_slot_matched_count": matched,
+        "schema_aware_slot_predicted_count": predicted,
+        "schema_aware_slot_gold_count": gold,
+        "schema_aware_slot_micro_precision": precision,
+        "schema_aware_slot_micro_recall": recall,
+        "schema_aware_slot_micro_f1": f1,
     }
 
 
@@ -304,15 +588,29 @@ def evaluate_existing_run(config, run_id):
             "property_tuple_precision_mean": _mean(arm_rows, "property_tuple_precision"),
             "property_tuple_recall_mean": _mean(arm_rows, "property_tuple_recall"),
             "property_tuple_f1_mean": _mean(arm_rows, "property_tuple_f1"),
+            "aligned_entity_f1_mean": _mean(arm_rows, "aligned_entity_f1"),
+            "property_detection_f1_mean": _mean(arm_rows, "property_detection_f1"),
+            "value_unit_f1_mean": _mean(arm_rows, "value_unit_f1"),
+            "condition_slot_f1_mean": _mean(arm_rows, "condition_slot_f1"),
+            "schema_aware_slot_precision_mean": _mean(arm_rows, "schema_aware_slot_precision"),
+            "schema_aware_slot_recall_mean": _mean(arm_rows, "schema_aware_slot_recall"),
+            "schema_aware_slot_f1_mean": _mean(arm_rows, "schema_aware_slot_f1"),
             **_micro_leaf_prf(arm_rows),
             **_micro_property_prf(arm_rows),
+            **_micro_schema_aware_prf(arm_rows),
         }
     by_document: dict[str, dict[str, dict[str, Any]]] = {}
     for row in rows:
         by_document.setdefault(str(row["document_id"]), {})[str(row["arm"])] = row
     paired_rows = [arms for arms in by_document.values() if "baseline" in arms and "optimized" in arms]
     paired_summary = {"document_count": len(paired_rows)}
-    for metric in ("strict_leaf_precision", "strict_leaf_recall", "strict_leaf_f1", "entity_identity_f1", "property_tuple_precision", "property_tuple_recall", "property_tuple_f1"):
+    for metric in (
+        "strict_leaf_precision", "strict_leaf_recall", "strict_leaf_f1",
+        "entity_identity_f1", "property_tuple_precision", "property_tuple_recall", "property_tuple_f1",
+        "aligned_entity_f1", "property_detection_f1", "value_unit_f1",
+        "condition_slot_f1", "schema_aware_slot_precision", "schema_aware_slot_recall",
+        "schema_aware_slot_f1",
+    ):
         deltas = [float(arms["optimized"][metric]) - float(arms["baseline"][metric]) for arms in paired_rows]
         paired_summary[f"{metric}_delta_mean"] = sum(deltas) / len(deltas) if deltas else None
     summary = {
@@ -320,6 +618,7 @@ def evaluate_existing_run(config, run_id):
         "semantic_equivalence_handled": False,
         "normalized_metric_scope": "entity_aligned_canonicalizable_properties_only",
         "free_text_semantic_equivalence_handled": False,
+        "schema_aware_metric_scope": "entity_aligned_unit_normalized_schema_slots",
         "document_count": len({row["document_id"] for row in rows}),
         "paired": paired_summary,
         **arm_summaries,

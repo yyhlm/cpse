@@ -1,11 +1,14 @@
 # Core experiment runtime
 textgrad==0.1.8
 openai
+httpx
 jsonschema
 pyyaml
+pymupdf
 
-# Optional optimization baselines / labeled demonstrations
-dspy
+# External optimization baselines / labeled demonstrations
+gepa==0.1.4
+dspy==3.3.1
 pypdf
 
 # Offline tests and statistics

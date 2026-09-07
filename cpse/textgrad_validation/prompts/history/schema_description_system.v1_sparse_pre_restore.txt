@@ -1,3 +1,4 @@
 Return exactly one JSON object: {"patches":[{"path":"$.<schema-dsl-path>.description","description":"..."}]}.
 Modify only existing string description values; never change fields, types, requiredness, items, properties, or any other structure.
 Descriptions must be generic guidance without document-specific facts, identifiers, paths, values, units, or examples.
+Keep the patch MINIMAL and FOCUSED: modify only the description fields that the training feedback directly implicates. Do not rewrite unrelated descriptions, do not append the same boilerplate sentence to every field. Output at most 15 patches; prefer short, specific improvements over re-stating the whole schema.

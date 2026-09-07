@@ -1,10 +1,10 @@
 root# Copy this file to the repo root as config.yaml, then fill in model names and
 # keys (via .env). Never commit real keys.
 paths:
-  data_dir: cpse/data                     # PDF / JSON 输入目录(必须 20 对)
-  schema_path: cpse/schema.json           # 仓库字段式 schema DSL
-  output_root: cpse/results               # 运行产物输出根目录
-  prompt_dir: cpse/textgrad_validation/prompts  # 各角色提示词所在目录
+  data_dir: test/data                    # PDF / JSON 输入目录(必须 20 对)
+  schema_path: test/schema.json          # 仓库字段式 schema DSL
+  output_root: test/results              # 运行产物输出根目录
+  prompt_dir: test/textgrad_validation/prompts  # 各角色提示词所在目录
 
 # Keys are read from the repository-root .env and referenced here by name.
 # Copy .env.example to the repository root; never put raw keys in this file.
@@ -30,8 +30,8 @@ roles:
     # base_url 通常为 https://generativelanguage.googleapis.com/v1beta,国内需配 proxy)。
     # 属于运行指纹的一部分,切换需新 run-id。
     api_protocol: responses
-    # reasoning_effort: "none"  # 关闭模型推理(仅 chat_completions_pdf_images 通道生效；
-                                # SenseNova 实测 reasoning_effort=none 生效，避免推理烧光输出预算致 content 为空)
+    # reasoning_effort: "none"  # Responses 通道映射为 reasoning.effort；Chat Completions
+                                # 通道直接传 reasoning_effort。可用于显式固定推理强度。
 
   judge:                                 # 金标裁判(只读预测/Gold/schema,不看 PDF)
     model: your-judge-model

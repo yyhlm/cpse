@@ -62,7 +62,12 @@ class PdfExtractor:
             system_prompt=self._system_prompt,
             payload=payload,
         )
-        validation_schema = {} if self._schema_free else schema
+        # Schema-free means the extractor never receives the contract, not that
+        # its returned JSON is exempt from the benchmark contract.  Validate
+        # every response locally against the target schema; schema-free outputs
+        # are deliberately not repaired because a repair request would reveal
+        # schema paths back to the extraction model.
+        validation_schema = schema
         artifact = validate_prediction(raw, validation_schema)
         attempts = 0
         # Deterministic repair first: fill absent required keys with structural
@@ -76,7 +81,7 @@ class PdfExtractor:
                 return filled_artifact, metadata
             if filled_artifact.validation_errors and len(filled_artifact.validation_errors) < len(artifact.validation_errors or ()):
                 artifact = filled_artifact
-        while not artifact.is_valid and attempts < self._max_repair_attempts:
+        while not self._schema_free and not artifact.is_valid and attempts < self._max_repair_attempts:
             attempts += 1
             repair_prompt = _build_repair_prompt(artifact)
             repair_payload = dict(payload)

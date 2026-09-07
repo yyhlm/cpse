@@ -11,6 +11,29 @@ from typing import Any
 from .artifacts import write_csv, write_json, write_text
 
 
+_DETERMINISTIC_DELTA_KEYS = (
+    "strict_leaf_recall",
+    "strict_leaf_f1",
+    "property_tuple_recall",
+    "property_tuple_f1",
+    "aligned_entity_f1",
+    "property_detection_f1",
+    "value_unit_f1",
+    "condition_slot_f1",
+    "schema_aware_slot_precision",
+    "schema_aware_slot_recall",
+    "schema_aware_slot_f1",
+)
+
+_DETERMINISTIC_PAIRED_KEYS = (
+    "aligned_entity_f1",
+    "property_detection_f1",
+    "value_unit_f1",
+    "condition_slot_f1",
+    "schema_aware_slot_f1",
+)
+
+
 def _mean(values: list[float]) -> float | None:
     return sum(values) / len(values) if values else None
 
@@ -154,10 +177,7 @@ def _read_deterministic_deltas(path: Path) -> dict[str, dict[str, float]]:
             if not document_id or arm not in {"baseline", "optimized"}:
                 continue
             by_document.setdefault(document_id, {})[arm] = {
-                "strict_leaf_recall": float(row["strict_leaf_recall"]),
-                "strict_leaf_f1": float(row["strict_leaf_f1"]),
-                "property_tuple_recall": float(row["property_tuple_recall"]),
-                "property_tuple_f1": float(row["property_tuple_f1"]),
+                key: float(row[key]) for key in _DETERMINISTIC_DELTA_KEYS
             }
     result: dict[str, dict[str, float]] = {}
     for document_id, arms in by_document.items():
@@ -165,7 +185,7 @@ def _read_deterministic_deltas(path: Path) -> dict[str, dict[str, float]]:
             continue
         result[document_id] = {
             key + "_delta": arms["optimized"][key] - arms["baseline"][key]
-            for key in ("strict_leaf_recall", "strict_leaf_f1", "property_tuple_recall", "property_tuple_f1")
+            for key in _DETERMINISTIC_DELTA_KEYS
         }
     return result
 
@@ -177,22 +197,13 @@ def _association(
     scores = [score_deltas[document_id] for document_id in document_ids]
     return {
         "count": len(document_ids),
-        "strict_leaf_recall_delta_spearman": rank_correlation(
-            scores,
-            [deterministic[document_id]["strict_leaf_recall_delta"] for document_id in document_ids],
-        ),
-        "strict_leaf_f1_delta_spearman": rank_correlation(
-            scores,
-            [deterministic[document_id]["strict_leaf_f1_delta"] for document_id in document_ids],
-        ),
-        "property_tuple_recall_delta_spearman": rank_correlation(
-            scores,
-            [deterministic[document_id]["property_tuple_recall_delta"] for document_id in document_ids],
-        ),
-        "property_tuple_f1_delta_spearman": rank_correlation(
-            scores,
-            [deterministic[document_id]["property_tuple_f1_delta"] for document_id in document_ids],
-        ),
+        **{
+            key + "_delta_spearman": rank_correlation(
+                scores,
+                [deterministic[document_id][key + "_delta"] for document_id in document_ids],
+            )
+            for key in _DETERMINISTIC_DELTA_KEYS
+        },
     }
 
 
@@ -232,9 +243,22 @@ def _statistics_report(summary: dict[str, Any]) -> str:
         )
     lines.extend([
         "",
-        "## 与严格叶子重叠指标的关系",
+        "## 确定性 schema-aware slot 指标",
         "",
-        "这里的严格指标不处理语义等价、单位换算或科学同义表达，只作为探索性辅助证据。",
+        "| 分项 | mean delta | median delta | 胜/平/负 | bootstrap 95% CI | p |",
+        "|---|---:|---:|---:|---:|---:|",
+    ])
+    for key, paired in summary["deterministic"].items():
+        ci = paired["bootstrap_95_ci"]
+        lines.append(
+            f"| {key} | {paired['mean']:.3f} | {paired['median']:.3f} | "
+            f"{paired['wins']}/{paired['ties']}/{paired['losses']} | "
+            f"[{ci[0]:.3f}, {ci[1]:.3f}] | "
+            f"{paired['exact_sign_flip_permutation_p_two_sided']:.6f} |"
+        )
+    lines.extend([
+        "",
+        "该指标执行一对一实体对齐、兼容单位归一化和 schema slot 计数；未登记的自由文本语义等价仍不会自动判同。",
         "",
     ])
     return "\n".join(lines) + "\n"
@@ -256,6 +280,14 @@ def evaluate_run_statistics(
             list(primary_deltas.values()), bootstrap_samples=bootstrap_samples, seed=seed
         ),
         "primary_vs_deterministic": _association(primary_deltas, deterministic),
+        "deterministic": {
+            key: paired_statistics(
+                [row[key + "_delta"] for row in deterministic.values()],
+                bootstrap_samples=bootstrap_samples,
+                seed=seed,
+            )
+            for key in _DETERMINISTIC_PAIRED_KEYS
+        },
         "judges": {},
     }
     judge_deltas: dict[str, dict[str, float]] = {}
