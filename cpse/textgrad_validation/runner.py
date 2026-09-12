@@ -65,7 +65,17 @@ def _is_two_stage_mode(mode: str) -> bool:
 
 def _training_complete_for_retry(checkpoint: dict[str, Any], mode: str) -> bool:
     stage = "training_complete" if mode == "gepa_manifest" else "alternating_training_complete"
-    return bool(checkpoint.get("stages", {}).get(stage))
+    stages = checkpoint.get("stages", {})
+    if stages.get(stage):
+        return True
+    alternating = checkpoint.get("alternating")
+    return bool(
+        mode != "gepa_manifest"
+        and stages.get("primary_complete")
+        and isinstance(alternating, dict)
+        and alternating.get("mode") == mode
+        and alternating.get("candidates")
+    )
 
 
 def _primary_arm_requires_retry(status: Any, *, artifacts_complete: bool) -> bool:
@@ -279,6 +289,7 @@ class ExperimentRunner:
         resume: str = "allow",
         invocation_command: str | None = None,
         skip_blind_baseline: bool = False,
+        force_blind_test: bool = False,
         retry_below_score: float | None = None,
     ) -> Path:
         run_dir = self.config.output_root / run_id
@@ -349,7 +360,9 @@ class ExperimentRunner:
         if _is_two_stage_mode(self.config.optimization_mode):
             try:
                 return self._run_two_stage(
-                    run_dir, split, requested_max_iterations, smoke_blind_doc, smoke_training, checkpoint
+                    run_dir, split, requested_max_iterations, smoke_blind_doc, smoke_training, checkpoint,
+                    skip_blind_baseline=skip_blind_baseline,
+                    force_blind_test=force_blind_test,
                 )
             except KeyboardInterrupt:
                 self._cancel_event.set()
@@ -2284,6 +2297,9 @@ class ExperimentRunner:
         smoke_blind_doc: str | None,
         smoke_training: bool,
         checkpoint: dict[str, Any],
+        *,
+        skip_blind_baseline: bool = False,
+        force_blind_test: bool = False,
     ) -> Path:
         """Two-stage index→resolve extraction + description-only schema patches.
 
@@ -2427,14 +2443,16 @@ class ExperimentRunner:
 
         self._log_alternating_candidates(candidates)
 
-        # Early exit on sub-threshold gain (mirror alternating's gate).
+        # Early exit on sub-threshold gain (mirror alternating's gate), unless
+        # a complete prespecified subset evaluation explicitly requests it.
         round_zero_mean = next(
             (c.mean_score for c in candidates if c.candidate_id == "round-000/joint" and c.mean_score is not None),
             None,
         )
         best_mean = max((c.mean_score for c in candidates if c.mean_score is not None), default=None)
         if (
-            round_zero_mean is not None
+            not force_blind_test
+            and round_zero_mean is not None
             and best_mean is not None
             and (best_mean - round_zero_mean) < MIN_BLIND_TEST_IMPROVEMENT
         ):
@@ -2461,6 +2479,13 @@ class ExperimentRunner:
             self._write_checkpoint(run_dir, checkpoint)
             self._log(f"[done] run_dir={run_dir} blind test skipped (optimization gain below threshold)")
             return run_dir
+        if force_blind_test:
+            skipped_path = run_dir / "blind_test_skipped.json"
+            if skipped_path.exists():
+                skipped_path.unlink()
+            checkpoint["stages"].pop("blind_skipped_optimization_failed", None)
+            self._write_checkpoint(run_dir, checkpoint)
+            self._log("[blind_test] forced despite training-gain threshold")
         selected_schema = dsl_to_json_schema(selected_dsl)
 
         blind_records = list(split.blind_test)
@@ -2469,17 +2494,24 @@ class ExperimentRunner:
             if len(blind_records) != 1:
                 raise ValueError("--blind-doc must identify one blind-test document in the frozen split.")
         self._log(f"[blind_test] documents={len(blind_records)} (smoke={smoke_blind_doc is not None})")
-        self._log(f"[blind_test] baseline two-stage extraction+judge for {len(blind_records)} documents...")
-        baseline_results = self._evaluate_two_stage(
-            run_dir, "blind_test", "baseline", baseline_evidence, baseline_resolve, tuple(blind_records), base_schema_dsl
-        )
-        checkpoint["stages"]["blind_baseline_complete"] = True
-        self._write_checkpoint(run_dir, checkpoint)
+        if skip_blind_baseline:
+            self._log("[blind_test] baseline skipped by --skip-blind-baseline")
+            baseline_results = {record.pair.document_id: None for record in blind_records}
+            checkpoint["stages"]["blind_baseline_skipped"] = True
+            self._write_checkpoint(run_dir, checkpoint)
+        else:
+            self._log(f"[blind_test] baseline two-stage extraction+judge for {len(blind_records)} documents...")
+            baseline_results = self._evaluate_two_stage(
+                run_dir, "blind_test", "baseline", baseline_evidence, baseline_resolve, tuple(blind_records), base_schema_dsl
+            )
+            checkpoint["stages"]["blind_baseline_complete"] = True
+            self._write_checkpoint(run_dir, checkpoint)
         self._log(f"[blind_test] optimized two-stage extraction+judge for {len(blind_records)} documents...")
         if optimized_dirty or checkpoint["stages"].get("blind_optimized_complete") is False:
             self._clear_optimized_blind_documents(run_dir, blind_records)
         optimized_results = self._evaluate_two_stage(
-            run_dir, "blind_test", "optimized", best_evidence_prompt, best_resolve_prompt, tuple(blind_records), selected_dsl
+            run_dir, "blind_test", "optimized", best_evidence_prompt, best_resolve_prompt,
+            tuple(blind_records), selected_dsl, reuse_local_results=True,
         )
         checkpoint["stages"]["blind_optimized_complete"] = True
         self._write_checkpoint(run_dir, checkpoint)
@@ -2488,7 +2520,7 @@ class ExperimentRunner:
         for index, record in enumerate(blind_records, start=1):
             document_id = record.pair.document_id
             baseline_result = baseline_results.get(document_id)
-            baseline_status = "valid" if baseline_result else "failed"
+            baseline_status = "skipped" if skip_blind_baseline else ("valid" if baseline_result else "failed")
             optimized_result = optimized_results.get(document_id)
             optimized_status = "valid" if optimized_result else "failed"
             score_b = f"{baseline_result.score:.1f}" if baseline_result else "?"
@@ -2501,7 +2533,7 @@ class ExperimentRunner:
                     "optimized_score": optimized_result.score if optimized_result else None,
                     "baseline_status": baseline_status,
                     "optimized_status": optimized_status,
-                    "baseline_validation_errors": self._two_stage_validation_error_count(run_dir, "blind_test/baseline", document_id),
+                    "baseline_validation_errors": None if skip_blind_baseline else self._two_stage_validation_error_count(run_dir, "blind_test/baseline", document_id),
                     "optimized_validation_errors": self._two_stage_validation_error_count(run_dir, "blind_test/optimized", document_id),
                 }
             )

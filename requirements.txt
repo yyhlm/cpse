@@ -11,6 +11,5 @@ gepa==0.1.4
 dspy==3.3.1
 pypdf
 
-# Offline tests and statistics
-pytest
+# Statistics
 scipy

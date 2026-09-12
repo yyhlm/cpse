@@ -4,6 +4,16 @@ __pycache__/
 .pytest_cache/
 *.py[cod]
 cpse/data/*
-!cpse/data/.gitkeep
+cpse/schema.json
+cpse/tests/
 cpse/results/
 cpse/artifact_release/
+results/
+MANIFEST.json
+SHA256SUMS.txt
+cpse/textgrad_validation/config_judge_grok46.yaml
+cpse/textgrad_validation/config*.yaml
+!cpse/textgrad_validation/config.example.yaml
+cpse/README.md
+cpse/textgrad_validation/README.md
+cpse/textgrad_validation/TWO_STAGE_IMPLEMENTATION_CONTRACT.md

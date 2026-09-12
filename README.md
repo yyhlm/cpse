@@ -1,31 +1,50 @@
-# Source release
+# Contract-Preserving Semantic Extraction (CPSE)
 
-This repository contains the implementation, prompts, schema, sanitized experiment configurations, and offline tests for low-resource scientific PDF extraction with TextGrad. It deliberately excludes copyrighted PDFs, Gold annotations, run results, caches, credentials, private service URLs, and proxy settings.
+This repository contains the CPSE implementation, prompts, structural schema, and sanitized configurations for low-resource scientific-PDF extraction.
 
-## Quick start
+## Release boundary
 
-```bash
+This source release deliberately excludes PDFs, Gold annotations, the task-specific schema, cached model responses, run outputs, experimental results, credentials, private service URLs, and proxy settings. End-to-end reproduction therefore requires an independently authorized PDF--Gold dataset and compatible schema.
+
+## Installation
+
+```powershell
 python -m venv .venv
-# Windows: .venv\Scripts\activate
-# Linux/macOS: source .venv/bin/activate
-pip install -r requirements.txt
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env
+Copy-Item cpse\textgrad_validation\config.example.yaml config.yaml
 ```
 
-Copy `cpse/textgrad_validation/config.example.yaml`, replace the model and endpoint placeholders, and set `MODEL_API_KEY` using `.env.example` as a template. Place an authorized PDF/Gold dataset under `cpse/data/`, then run:
+Set `MODEL_API_KEY` in `.env`, then edit `config.yaml` to select the extraction and evaluation models supported by your API provider.
 
-```bash
-python -m cpse.textgrad_validation --config <config.yaml> --run-id <run-id>
-python -m pytest -q cpse/tests
+## Dataset layout
+
+Place authorized document pairs under `cpse/data/` using matching file stems:
+
+```text
+cpse/data/
+  paper_001.pdf
+  paper_001.json
+  paper_002.pdf
+  paper_002.json
+  schema.json
 ```
 
-The primary two-stage configuration is `cpse/textgrad_validation/config_two_stage2.yaml`. Detailed modes, artifact layouts, recovery commands, and ablation protocols are documented in `cpse/README.md` and `cpse/textgrad_validation/README.md`.
+The JSON files must conform to the schema at `cpse/data/schema.json`; update the corresponding `schema_path` in `config.yaml` if you store it elsewhere.
 
-## Reproduction boundary
+## Run CPSE
 
-Published result verification should use the paired public artifact bundle containing frozen predictions and evaluation artifacts. This source release alone cannot reproduce PDF-dependent scores without authorized source documents and Gold annotations.
+First validate the local configuration and dataset without making model calls:
 
-The schema and prompts are included because they define the evaluated protocol. Raw source documents are excluded because redistribution rights remain with the respective publishers.
+```powershell
+python -m cpse.textgrad_validation --config config.yaml --run-id cpse-reproduction-01 --preflight
+```
 
-## License
+Then run the primary two-stage calibration workflow:
 
-No open-source license is selected automatically. Add the intended license before making the GitHub repository public.
+```powershell
+python -m cpse.textgrad_validation --config config.yaml --run-id cpse-reproduction-01
+```
+
+The implementation package is `cpse/textgrad_validation/`. Its configuration files document optional baseline, evaluation, and analysis modes.

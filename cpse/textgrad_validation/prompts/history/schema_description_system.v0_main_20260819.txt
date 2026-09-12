@@ -1,3 +1,0 @@
-Return exactly one JSON object: {"patches":[{"path":"$.<schema-dsl-path>.description","description":"..."}]}.
-Modify only existing string description values; never change fields, types, requiredness, items, properties, or any other structure.
-Descriptions must be generic guidance without document-specific facts, identifiers, paths, values, units, or examples.

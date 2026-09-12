@@ -30,7 +30,7 @@ from .usage_ledger import ApiUsageLedger
 def _invocation_command() -> str:
     """Return a copyable module invocation using the original CLI arguments."""
     arguments = subprocess.list2cmdline(sys.argv[1:])
-    return "python -m test.textgrad_validation" + (f" {arguments}" if arguments else "")
+    return "python -m cpse.textgrad_validation" + (f" {arguments}" if arguments else "")
 
 
 def _order_train_pool_for_subset(
@@ -133,6 +133,7 @@ def main() -> int:
     parser.add_argument("--reselect-score-retries", type=float, metavar="SCORE",
                         help="Offline: rebuild final baseline/optimized artifacts from saved adaptive attempts using SCORE; makes no API calls.")
     parser.add_argument("--skip-blind-baseline", action="store_true", help="After optimization, skip blind-test baseline extraction and judging; run only the optimized arm.")
+    parser.add_argument("--force-blind-test", action="store_true", help="Run held-out evaluation even when the selected state's training gain is below the usual blind-test threshold.")
     parser.add_argument("--execution-ablation", action="store_true", help="Re-use a completed two-stage run's frozen state and compare one-shot versus bounded manifest resolution without retraining.")
     parser.add_argument("--stage2-replay", metavar="LABEL", help="Re-run bounded Stage 2 using manifests saved by execution ablation, without rerunning Stage 1.")
     parser.add_argument("--stage2-doc", action="append", default=None, metavar="DOCUMENT_ID",
@@ -480,6 +481,7 @@ def main() -> int:
             resume=args.resume,
             invocation_command=_invocation_command(),
             skip_blind_baseline=args.skip_blind_baseline,
+            force_blind_test=args.force_blind_test,
             retry_below_score=args.retry_below_score,
         )
     except KeyboardInterrupt:

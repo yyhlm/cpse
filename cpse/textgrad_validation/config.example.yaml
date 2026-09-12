@@ -1,10 +1,10 @@
-root# Copy this file to the repo root as config.yaml, then fill in model names and
-# keys (via .env). Never commit real keys.
+# Copy this file to the repository root as config.yaml, then select models and
+# configure credentials through .env. Never commit real keys.
 paths:
-  data_dir: test/data                    # PDF / JSON 输入目录(必须 20 对)
-  schema_path: test/schema.json          # 仓库字段式 schema DSL
-  output_root: test/results              # 运行产物输出根目录
-  prompt_dir: test/textgrad_validation/prompts  # 各角色提示词所在目录
+  data_dir: cpse/data                    # authorized PDF / JSON pairs
+  schema_path: cpse/data/schema.json      # user-provided structural schema DSL
+  output_root: results                    # local run outputs (gitignored)
+  prompt_dir: cpse/textgrad_validation/prompts
 
 # Keys are read from the repository-root .env and referenced here by name.
 # Copy .env.example to the repository root; never put raw keys in this file.
@@ -12,7 +12,7 @@ roles:
   extractor:                             # PDF 抽取模型
     model: your-pdf-capable-model        # 模型 ID,如 gpt-4o
     base_url: https://api.openai.com/v1  # API 端点地址
-    api_key_env: TEXTGRAD_EXTRACTOR_API_KEY  # 读取密钥的环境变量名(在 .env 中设置)
+    api_key_env: MODEL_API_KEY            # read from repository-root .env
     temperature: 0                       # 采样温度(0-1)。抽取场景推荐 0
     max_output_tokens: 16384             # 单次请求最大输出 token 数
     timeout_seconds: 300                 # 单次 API 请求超时时间(秒)
@@ -36,7 +36,7 @@ roles:
   judge:                                 # 金标裁判(只读预测/Gold/schema,不看 PDF)
     model: your-judge-model
     base_url: https://api.openai.com/v1
-    api_key_env: TEXTGRAD_JUDGE_API_KEY
+    api_key_env: MODEL_API_KEY
     temperature: 0
     max_output_tokens: 8192
     timeout_seconds: 180
@@ -47,7 +47,7 @@ roles:
   gold_audit:                            # 金标 PDF 审计(可选,见 gold_audit.enabled)
     model: your-pdf-capable-audit-model
     base_url: https://api.openai.com/v1
-    api_key_env: TEXTGRAD_AUDIT_API_KEY
+    api_key_env: MODEL_API_KEY
     temperature: 0
     max_output_tokens: 8192
     timeout_seconds: 300
@@ -69,7 +69,7 @@ evaluation:
 #   description-only 补丁，再用候选 schema + 更新后的抽取提示词只重抽取/评分一次。
 #   接受为无门槛：补丁合法且三篇训练文档均有有效评分即接受并整体推进，否则两个提示词与
 #   schema 一起回滚；schema 补丁模型复用 judge 角色。
-optimization_mode: single
+optimization_mode: two_stage_alternating_schema_description
 
 cache:
   # false：同时关闭 run-local 结果复用与 results/_cache 共享缓存的读写；每篇都会重新调用模型。
